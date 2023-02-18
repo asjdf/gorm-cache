@@ -65,13 +65,14 @@ func AfterQuery(cache *Gorm2Cache) func(db *gorm.DB) {
 						return
 					}
 					if int64(len(objects)) > cache.Config.CacheMaxItemCnt {
+						cache.Logger.CtxInfo(ctx, "[AfterQuery] objects length is more than max item count, not cached")
 						return
 					}
 					kvs := make([]util.Kv, 0, len(objects))
 					for i := 0; i < len(objects); i++ {
 						jsonStr, err := json.Marshal(objects[i])
 						if err != nil {
-							cache.Logger.CtxError(ctx, "[AfterQuery] object %v cannot marshal, not cached")
+							cache.Logger.CtxError(ctx, "[AfterQuery] object %v cannot marshal, not cached", objects[i])
 							continue
 						}
 						kvs = append(kvs, util.Kv{
