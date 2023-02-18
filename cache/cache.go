@@ -7,11 +7,18 @@ import (
 	"github.com/asjdf/gorm-cache/config"
 	"github.com/asjdf/gorm-cache/dataLayer"
 	"github.com/asjdf/gorm-cache/util"
+	jsoniter "github.com/json-iterator/go"
 	"gorm.io/gorm"
 )
 
 var (
 	_ gorm.Plugin = &Gorm2Cache{}
+
+	json = jsoniter.Config{
+		EscapeHTML:             true,
+		ValidateJsonRawMessage: true,
+		TagKey:                 "gormCache",
+	}.Froze()
 )
 
 type Gorm2Cache struct {
