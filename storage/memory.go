@@ -18,30 +18,30 @@ var DefaultMemStoreConfig = &MemStoreConfig{
 	MaxSize: 1000,
 }
 
-func NewMem(config *MemStoreConfig) *MemoryLayer {
-	return &MemoryLayer{config: config}
+func NewMem(config *MemStoreConfig) *Memory {
+	return &Memory{config: config}
 }
 
-type MemoryLayer struct {
+type Memory struct {
 	config *MemStoreConfig
 
 	cache *ccache.Cache[string]
 	ttl   int64
 }
 
-func (m *MemoryLayer) Init(conf *config.CacheConfig, prefix string) error {
+func (m *Memory) Init(conf *config.CacheConfig, prefix string) error {
 	c := ccache.New(ccache.Configure[string]().MaxSize(m.config.MaxSize))
 	m.cache = c
 	m.ttl = conf.CacheTTL
 	return nil
 }
 
-func (m *MemoryLayer) CleanCache(ctx context.Context) error {
+func (m *Memory) CleanCache(ctx context.Context) error {
 	m.cache.Clear()
 	return nil
 }
 
-func (m *MemoryLayer) BatchKeyExist(ctx context.Context, keys []string) (bool, error) {
+func (m *Memory) BatchKeyExist(ctx context.Context, keys []string) (bool, error) {
 	for _, key := range keys {
 		item := m.cache.Get(key)
 		if item == nil || item.Expired() {
@@ -51,12 +51,12 @@ func (m *MemoryLayer) BatchKeyExist(ctx context.Context, keys []string) (bool, e
 	return true, nil
 }
 
-func (m *MemoryLayer) KeyExists(ctx context.Context, key string) (bool, error) {
+func (m *Memory) KeyExists(ctx context.Context, key string) (bool, error) {
 	item := m.cache.Get(key)
 	return item != nil && !item.Expired(), nil
 }
 
-func (m *MemoryLayer) GetValue(ctx context.Context, key string) (string, error) {
+func (m *Memory) GetValue(ctx context.Context, key string) (string, error) {
 	item := m.cache.Get(key)
 	if item == nil || item.Expired() {
 		return "", ErrCacheNotFound
@@ -64,7 +64,7 @@ func (m *MemoryLayer) GetValue(ctx context.Context, key string) (string, error) 
 	return item.Value(), nil
 }
 
-func (m *MemoryLayer) BatchGetValues(ctx context.Context, keys []string) ([]string, error) {
+func (m *Memory) BatchGetValues(ctx context.Context, keys []string) ([]string, error) {
 	values := make([]string, 0, len(keys))
 	for _, key := range keys {
 		item := m.cache.Get(key)
@@ -78,24 +78,24 @@ func (m *MemoryLayer) BatchGetValues(ctx context.Context, keys []string) ([]stri
 	return values, nil
 }
 
-func (m *MemoryLayer) DeleteKeysWithPrefix(ctx context.Context, keyPrefix string) error {
+func (m *Memory) DeleteKeysWithPrefix(ctx context.Context, keyPrefix string) error {
 	m.cache.DeletePrefix(keyPrefix)
 	return nil
 }
 
-func (m *MemoryLayer) DeleteKey(ctx context.Context, key string) error {
+func (m *Memory) DeleteKey(ctx context.Context, key string) error {
 	m.cache.Delete(key)
 	return nil
 }
 
-func (m *MemoryLayer) BatchDeleteKeys(ctx context.Context, keys []string) error {
+func (m *Memory) BatchDeleteKeys(ctx context.Context, keys []string) error {
 	for _, key := range keys {
 		m.cache.Delete(key)
 	}
 	return nil
 }
 
-func (m *MemoryLayer) BatchSetKeys(ctx context.Context, kvs []util.Kv) error {
+func (m *Memory) BatchSetKeys(ctx context.Context, kvs []util.Kv) error {
 	for _, kv := range kvs {
 		if m.ttl > 0 {
 			m.cache.Set(kv.Key, kv.Value, time.Duration(util.RandFloatingInt64(m.ttl))*time.Millisecond)
@@ -106,7 +106,7 @@ func (m *MemoryLayer) BatchSetKeys(ctx context.Context, kvs []util.Kv) error {
 	return nil
 }
 
-func (m *MemoryLayer) SetKey(ctx context.Context, kv util.Kv) error {
+func (m *Memory) SetKey(ctx context.Context, kv util.Kv) error {
 	if m.ttl > 0 {
 		m.cache.Set(kv.Key, kv.Value, time.Duration(util.RandFloatingInt64(m.ttl))*time.Millisecond)
 	} else {

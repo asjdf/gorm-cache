@@ -13,6 +13,7 @@ var (
 
 type DataStorage interface {
 	Init(config *config.CacheConfig, prefix string) error
+	CleanCache(ctx context.Context) error
 
 	// read
 	BatchKeyExist(ctx context.Context, keys []string) (bool, error)
@@ -21,7 +22,6 @@ type DataStorage interface {
 	BatchGetValues(ctx context.Context, keys []string) ([]string, error)
 
 	// write
-	CleanCache(ctx context.Context) error
 	DeleteKeysWithPrefix(ctx context.Context, keyPrefix string) error
 	DeleteKey(ctx context.Context, key string) error
 	BatchDeleteKeys(ctx context.Context, keys []string) error
