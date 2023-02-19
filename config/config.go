@@ -1,14 +1,13 @@
 package config
 
+import "github.com/asjdf/gorm-cache/storage"
+
 type CacheConfig struct {
 	// CacheLevel there are 2 types of cache and 4 kinds of cache option
 	CacheLevel CacheLevel
 
 	// CacheStorage choose proper storage medium
-	CacheStorage CacheStorage
-
-	// RedisConfig if storage is redis, then this config needs to be setup
-	RedisConfig *RedisConfig
+	CacheStorage storage.DataStorage
 
 	// Tables only cache data within given data tables (cache all if empty)
 	Tables []string
@@ -28,9 +27,6 @@ type CacheConfig struct {
 	// DisableCachePenetration if true, then we will not cache nil result
 	DisableCachePenetrationProtect bool
 
-	// CacheSize maximal items in primary cache (only works in MEMORY storage)
-	CacheSize int
-
 	// DebugMode indicate if we're in debug mode (will print access log)
 	DebugMode bool
 
@@ -45,11 +41,4 @@ const (
 	CacheLevelOnlyPrimary CacheLevel = 1
 	CacheLevelOnlySearch  CacheLevel = 2
 	CacheLevelAll         CacheLevel = 3
-)
-
-type CacheStorage int
-
-const (
-	CacheStorageMemory CacheStorage = 0
-	CacheStorageRedis  CacheStorage = 1
 )

@@ -65,24 +65,18 @@ func (c *Gorm2Cache) Initialize(db *gorm.DB) (err error) {
 }
 
 func (c *Gorm2Cache) AttachToDB(db *gorm.DB) {
-	c.Initialize(db)
+	_ = c.Initialize(db)
 }
 
 func (c *Gorm2Cache) Init() error {
-	if c.Config.CacheStorage == config.CacheStorageRedis {
-		if c.Config.RedisConfig == nil {
-			panic("please init redis config!")
-		}
-		c.Config.RedisConfig.InitClient()
-	}
 	c.InstanceId = util.GenInstanceId()
 
 	prefix := util.GormCachePrefix + ":" + c.InstanceId
 
-	if c.Config.CacheStorage == config.CacheStorageRedis {
-		c.cache = &storage.RedisLayer{}
-	} else if c.Config.CacheStorage == config.CacheStorageMemory {
-		c.cache = &storage.MemoryLayer{}
+	if c.cache != nil {
+		c.cache = c.Config.CacheStorage
+	} else {
+		c.cache = storage.NewMem(storage.DefaultMemStoreConfig)
 	}
 
 	if c.Config.DebugLogger == nil {

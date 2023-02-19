@@ -9,6 +9,16 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+func NewRedisWithClient(client *redis.Client) *RedisLayer {
+	return &RedisLayer{
+		client: client,
+	}
+}
+
+func NewRedisWithOptions(options *redis.Options) *RedisLayer {
+	return NewRedisWithClient(redis.NewClient(options))
+}
+
 type RedisLayer struct {
 	client    *redis.Client
 	ttl       int64
@@ -20,12 +30,6 @@ type RedisLayer struct {
 }
 
 func (r *RedisLayer) Init(conf *config.CacheConfig, prefix string) error {
-	if conf.RedisConfig.Mode == config.RedisConfigModeOptions {
-		r.client = redis.NewClient(conf.RedisConfig.Options)
-	} else {
-		r.client = conf.RedisConfig.Client
-	}
-
 	r.ttl = conf.CacheTTL
 	r.logger = conf.DebugLogger
 	r.logger.SetIsDebug(conf.DebugMode)
