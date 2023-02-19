@@ -103,6 +103,10 @@ func AfterQuery(cache *Gorm2Cache) func(db *gorm.DB) {
 				cache.Logger.CtxInfo(ctx, "[AfterQuery] sql %s cached", sql)
 			}
 		}
+		if errors.Is(db.Error, util.RecordNotFoundCacheHit) {
+			db.Error = gorm.ErrRecordNotFound
+			return
+		}
 
 		if errors.Is(db.Error, util.SearchCacheHit) {
 			// search cache hit
