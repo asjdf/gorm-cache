@@ -1,4 +1,4 @@
-package dataLayer
+package storage
 
 import (
 	"context"
@@ -45,7 +45,7 @@ func (m *MemoryLayer) KeyExists(ctx context.Context, key string) (bool, error) {
 func (m *MemoryLayer) GetValue(ctx context.Context, key string) (string, error) {
 	item := m.cache.Get(key)
 	if item == nil || item.Expired() {
-		return "", fmt.Errorf("cannot get item")
+		return "", ErrCacheNotFound
 	}
 	return item.Value(), nil
 }

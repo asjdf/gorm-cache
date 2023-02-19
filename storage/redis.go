@@ -1,4 +1,4 @@
-package dataLayer
+package storage
 
 import (
 	"context"
@@ -98,8 +98,12 @@ func (r *RedisLayer) KeyExists(ctx context.Context, key string) (bool, error) {
 	return false, nil
 }
 
-func (r *RedisLayer) GetValue(ctx context.Context, key string) (string, error) {
-	return r.client.Get(ctx, key).Result()
+func (r *RedisLayer) GetValue(ctx context.Context, key string) (data string, err error) {
+	data, err = r.client.Get(ctx, key).Result()
+	if err == redis.Nil {
+		err = ErrCacheNotFound
+	}
+	return
 }
 
 func (r *RedisLayer) BatchGetValues(ctx context.Context, keys []string) ([]string, error) {

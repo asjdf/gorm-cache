@@ -1,13 +1,17 @@
-package dataLayer
+package storage
 
 import (
 	"context"
-
+	"errors"
 	"github.com/asjdf/gorm-cache/config"
 	"github.com/asjdf/gorm-cache/util"
 )
 
-type DataLayerInterface interface {
+var (
+	ErrCacheNotFound = errors.New("cache not found")
+)
+
+type DataStorage interface {
 	Init(config *config.CacheConfig, prefix string) error
 
 	// read

@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 
 	"github.com/asjdf/gorm-cache/config"
-	"github.com/asjdf/gorm-cache/dataLayer"
+	"github.com/asjdf/gorm-cache/storage"
 	"github.com/asjdf/gorm-cache/util"
 	jsoniter "github.com/json-iterator/go"
 	"gorm.io/gorm"
@@ -27,7 +27,7 @@ type Gorm2Cache struct {
 	InstanceId string
 
 	db       *gorm.DB
-	cache    dataLayer.DataLayerInterface
+	cache    storage.DataStorage
 	hitCount int64
 }
 
@@ -80,9 +80,9 @@ func (c *Gorm2Cache) Init() error {
 	prefix := util.GormCachePrefix + ":" + c.InstanceId
 
 	if c.Config.CacheStorage == config.CacheStorageRedis {
-		c.cache = &dataLayer.RedisLayer{}
+		c.cache = &storage.RedisLayer{}
 	} else if c.Config.CacheStorage == config.CacheStorageMemory {
-		c.cache = &dataLayer.MemoryLayer{}
+		c.cache = &storage.MemoryLayer{}
 	}
 
 	if c.Config.DebugLogger == nil {

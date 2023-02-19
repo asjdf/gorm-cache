@@ -2,13 +2,13 @@ package cache
 
 import (
 	"errors"
+	"github.com/asjdf/gorm-cache/storage"
 	"reflect"
 	"strconv"
 	"strings"
 
 	"github.com/asjdf/gorm-cache/config"
 	"github.com/asjdf/gorm-cache/util"
-	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 	"gorm.io/gorm/callbacks"
 )
@@ -29,13 +29,12 @@ func BeforeQuery(cache *Gorm2Cache) func(db *gorm.DB) {
 		db.InstanceSet("gorm:cache:vars", db.Statement.Vars)
 
 		if util.ShouldCache(tableName, cache.Config.Tables) {
-
 			if cache.Config.CacheLevel == config.CacheLevelAll || cache.Config.CacheLevel == config.CacheLevelOnlySearch {
 				// search cache hit
 
 				cacheValue, err := cache.GetSearchCache(ctx, tableName, sql, db.Statement.Vars...)
 				if err != nil {
-					if !errors.Is(err, redis.Nil) {
+					if !errors.Is(err, storage.ErrCacheNotFound) {
 						cache.Logger.CtxError(ctx, "[BeforeQuery] get cache value for sql %s error: %v", sql, err)
 					}
 					db.Error = nil
