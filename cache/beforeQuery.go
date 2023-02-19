@@ -41,6 +41,10 @@ func BeforeQuery(cache *Gorm2Cache) func(db *gorm.DB) {
 					return
 				}
 				cache.Logger.CtxInfo(ctx, "[BeforeQuery] get value: %s", cacheValue)
+				if cacheValue == "recordNotFound" { // 应对缓存穿透
+					db.Error = gorm.ErrRecordNotFound
+					return
+				}
 				rowsAffectedPos := strings.Index(cacheValue, "|")
 				db.RowsAffected, err = strconv.ParseInt(cacheValue[:rowsAffectedPos], 10, 64)
 				if err != nil {

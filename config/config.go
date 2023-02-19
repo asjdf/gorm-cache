@@ -25,6 +25,9 @@ type CacheConfig struct {
 	// then we choose not to cache for this query. 0 represents caching all queries.
 	CacheMaxItemCnt int64
 
+	// DisableCachePenetration if true, then we will not cache nil result
+	DisableCachePenetrationProtect bool
+
 	// CacheSize maximal items in primary cache (only works in MEMORY storage)
 	CacheSize int
 

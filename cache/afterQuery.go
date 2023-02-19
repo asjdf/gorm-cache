@@ -92,6 +92,18 @@ func AfterQuery(cache *Gorm2Cache) func(db *gorm.DB) {
 			return
 		}
 
+		if !cache.Config.DisableCachePenetrationProtect {
+			if errors.Is(db.Error, gorm.ErrRecordNotFound) { // 应对缓存穿透 未来可能考虑使用其他过滤器实现：如布隆过滤器
+				cache.Logger.CtxInfo(ctx, "[AfterQuery] set cache: %v", "recordNotFound")
+				err := cache.SetSearchCache(ctx, "recordNotFound", tableName, sql, vars...)
+				if err != nil {
+					cache.Logger.CtxError(ctx, "[AfterQuery] set search cache for sql: %s error: %v", sql, err)
+					return
+				}
+				cache.Logger.CtxInfo(ctx, "[AfterQuery] sql %s cached", sql)
+			}
+		}
+
 		if errors.Is(db.Error, util.SearchCacheHit) {
 			// search cache hit
 			db.Error = nil
