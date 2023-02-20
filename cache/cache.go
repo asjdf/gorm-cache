@@ -36,17 +36,17 @@ func (c *Gorm2Cache) Name() string {
 }
 
 func (c *Gorm2Cache) Initialize(db *gorm.DB) (err error) {
-	err = db.Callback().Create().After("*").Register("gorm:cache:after_create", AfterCreate(c))
+	err = db.Callback().Create().After("gorm:create").Register("gorm:cache:after_create", AfterCreate(c))
 	if err != nil {
 		return err
 	}
 
-	err = db.Callback().Delete().After("*").Register("gorm:cache:after_delete", AfterDelete(c))
+	err = db.Callback().Delete().After("gorm:delete").Register("gorm:cache:after_delete", AfterDelete(c))
 	if err != nil {
 		return err
 	}
 
-	err = db.Callback().Update().After("*").Register("gorm:cache:after_update", AfterUpdate(c))
+	err = db.Callback().Update().After("gorm:update").Register("gorm:cache:after_update", AfterUpdate(c))
 	if err != nil {
 		return err
 	}
@@ -56,7 +56,7 @@ func (c *Gorm2Cache) Initialize(db *gorm.DB) (err error) {
 		return err
 	}
 
-	err = db.Callback().Query().After("*").Register("gorm:cache:after_query", AfterQuery(c))
+	err = db.Callback().Query().After("gorm:query").Register("gorm:cache:after_query", AfterQuery(c))
 	if err != nil {
 		return err
 	}
