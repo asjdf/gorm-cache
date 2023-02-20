@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/asjdf/gorm-cache/config"
@@ -27,14 +28,20 @@ type Redis struct {
 
 	batchExistSha string
 	cleanCacheSha string
+
+	once sync.Once
 }
 
 func (r *Redis) Init(conf *config.CacheConfig, prefix string) error {
-	r.ttl = conf.CacheTTL
-	r.logger = conf.DebugLogger
-	r.logger.SetIsDebug(conf.DebugMode)
-	r.keyPrefix = prefix
-	return r.initScripts()
+	var err error
+	r.once.Do(func() {
+		r.ttl = conf.CacheTTL
+		r.logger = conf.DebugLogger
+		r.logger.SetIsDebug(conf.DebugMode)
+		r.keyPrefix = prefix
+		err = r.initScripts()
+	})
+	return err
 }
 
 func (r *Redis) initScripts() error {

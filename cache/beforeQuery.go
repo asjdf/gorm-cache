@@ -31,12 +31,12 @@ func BeforeQuery(cache *Gorm2Cache) func(db *gorm.DB) {
 		if util.ShouldCache(tableName, cache.Config.Tables) {
 			if cache.Config.CacheLevel == config.CacheLevelAll || cache.Config.CacheLevel == config.CacheLevelOnlySearch {
 				// search cache hit
-
 				cacheValue, err := cache.GetSearchCache(ctx, tableName, sql, db.Statement.Vars...)
 				if err != nil {
 					if !errors.Is(err, storage.ErrCacheNotFound) {
 						cache.Logger.CtxError(ctx, "[BeforeQuery] get cache value for sql %s error: %v", sql, err)
 					}
+					cache.stats.IncrMissCount()
 					db.Error = nil
 					return
 				}

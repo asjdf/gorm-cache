@@ -2,8 +2,6 @@ package cache
 
 import (
 	"context"
-	"sync/atomic"
-
 	"github.com/asjdf/gorm-cache/config"
 	"github.com/asjdf/gorm-cache/storage"
 	"github.com/asjdf/gorm-cache/util"
@@ -13,6 +11,7 @@ import (
 
 var (
 	_ gorm.Plugin = &Gorm2Cache{}
+	_ Cache       = &Gorm2Cache{}
 
 	json = jsoniter.Config{
 		EscapeHTML:             true,
@@ -20,6 +19,15 @@ var (
 		TagKey:                 "gormCache",
 	}.Froze()
 )
+
+type Cache interface {
+	Name() string
+	Initialize(db *gorm.DB) error
+	AttachToDB(db *gorm.DB)
+
+	ResetCache() error
+	StatsAccessor
+}
 
 type Gorm2Cache struct {
 	Config     *config.CacheConfig
@@ -29,6 +37,8 @@ type Gorm2Cache struct {
 	db       *gorm.DB
 	cache    storage.DataStorage
 	hitCount int64
+
+	*stats
 }
 
 func (c *Gorm2Cache) Name() string {
@@ -93,20 +103,8 @@ func (c *Gorm2Cache) Init() error {
 	return nil
 }
 
-func (c *Gorm2Cache) GetHitCount() int64 {
-	return atomic.LoadInt64(&c.hitCount)
-}
-
-func (c *Gorm2Cache) ResetHitCount() {
-	atomic.StoreInt64(&c.hitCount, 0)
-}
-
-func (c *Gorm2Cache) IncrHitCount() {
-	atomic.AddInt64(&c.hitCount, 1)
-}
-
 func (c *Gorm2Cache) ResetCache() error {
-	c.ResetHitCount()
+	c.stats.ResetHitCount()
 	ctx := context.Background()
 	err := c.cache.CleanCache(ctx)
 	if err != nil {
