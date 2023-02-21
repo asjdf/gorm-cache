@@ -2,6 +2,7 @@ package util
 
 import "errors"
 
+var RecordNotFoundCacheHit = errors.New("record not found cache hit")
 var PrimaryCacheHit = errors.New("primary cache hit")
 var SearchCacheHit = errors.New("search cache hit")
 

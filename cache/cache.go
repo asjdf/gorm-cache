@@ -2,8 +2,6 @@ package cache
 
 import (
 	"context"
-	"sync/atomic"
-
 	"github.com/asjdf/gorm-cache/config"
 	"github.com/asjdf/gorm-cache/storage"
 	"github.com/asjdf/gorm-cache/util"
@@ -13,6 +11,7 @@ import (
 
 var (
 	_ gorm.Plugin = &Gorm2Cache{}
+	_ Cache       = &Gorm2Cache{}
 
 	json = jsoniter.Config{
 		EscapeHTML:             true,
@@ -21,14 +20,25 @@ var (
 	}.Froze()
 )
 
+type Cache interface {
+	Name() string
+	Initialize(db *gorm.DB) error
+	AttachToDB(db *gorm.DB)
+
+	ResetCache() error
+	StatsAccessor
+}
+
 type Gorm2Cache struct {
 	Config     *config.CacheConfig
-	Logger     config.LoggerInterface
+	Logger     util.LoggerInterface
 	InstanceId string
 
 	db       *gorm.DB
 	cache    storage.DataStorage
 	hitCount int64
+
+	*stats
 }
 
 func (c *Gorm2Cache) Name() string {
@@ -36,17 +46,17 @@ func (c *Gorm2Cache) Name() string {
 }
 
 func (c *Gorm2Cache) Initialize(db *gorm.DB) (err error) {
-	err = db.Callback().Create().After("*").Register("gorm:cache:after_create", AfterCreate(c))
+	err = db.Callback().Create().After("gorm:create").Register("gorm:cache:after_create", AfterCreate(c))
 	if err != nil {
 		return err
 	}
 
-	err = db.Callback().Delete().After("*").Register("gorm:cache:after_delete", AfterDelete(c))
+	err = db.Callback().Delete().After("gorm:delete").Register("gorm:cache:after_delete", AfterDelete(c))
 	if err != nil {
 		return err
 	}
 
-	err = db.Callback().Update().After("*").Register("gorm:cache:after_update", AfterUpdate(c))
+	err = db.Callback().Update().After("gorm:update").Register("gorm:cache:after_update", AfterUpdate(c))
 	if err != nil {
 		return err
 	}
@@ -56,7 +66,7 @@ func (c *Gorm2Cache) Initialize(db *gorm.DB) (err error) {
 		return err
 	}
 
-	err = db.Callback().Query().After("*").Register("gorm:cache:after_query", AfterQuery(c))
+	err = db.Callback().Query().After("gorm:query").Register("gorm:cache:after_query", AfterQuery(c))
 	if err != nil {
 		return err
 	}
@@ -65,33 +75,31 @@ func (c *Gorm2Cache) Initialize(db *gorm.DB) (err error) {
 }
 
 func (c *Gorm2Cache) AttachToDB(db *gorm.DB) {
-	c.Initialize(db)
+	_ = c.Initialize(db)
 }
 
 func (c *Gorm2Cache) Init() error {
-	if c.Config.CacheStorage == config.CacheStorageRedis {
-		if c.Config.RedisConfig == nil {
-			panic("please init redis config!")
-		}
-		c.Config.RedisConfig.InitClient()
-	}
 	c.InstanceId = util.GenInstanceId()
 
 	prefix := util.GormCachePrefix + ":" + c.InstanceId
 
-	if c.Config.CacheStorage == config.CacheStorageRedis {
-		c.cache = &storage.RedisLayer{}
-	} else if c.Config.CacheStorage == config.CacheStorageMemory {
-		c.cache = &storage.MemoryLayer{}
+	if c.cache != nil {
+		c.cache = c.Config.CacheStorage
+	} else {
+		c.cache = storage.NewMem(storage.DefaultMemStoreConfig)
 	}
 
 	if c.Config.DebugLogger == nil {
-		c.Config.DebugLogger = &config.DefaultLoggerImpl{}
+		c.Config.DebugLogger = &util.DefaultLogger{}
 	}
 	c.Logger = c.Config.DebugLogger
 	c.Logger.SetIsDebug(c.Config.DebugMode)
 
-	err := c.cache.Init(c.Config, prefix)
+	err := c.cache.Init(&storage.Config{
+		TTL:    c.Config.CacheTTL,
+		Debug:  c.Config.DebugMode,
+		Logger: c.Logger,
+	}, prefix)
 	if err != nil {
 		c.Logger.CtxError(context.Background(), "[Init] cache init error: %v", err)
 		return err
@@ -99,20 +107,8 @@ func (c *Gorm2Cache) Init() error {
 	return nil
 }
 
-func (c *Gorm2Cache) GetHitCount() int64 {
-	return atomic.LoadInt64(&c.hitCount)
-}
-
-func (c *Gorm2Cache) ResetHitCount() {
-	atomic.StoreInt64(&c.hitCount, 0)
-}
-
-func (c *Gorm2Cache) IncrHitCount() {
-	atomic.AddInt64(&c.hitCount, 1)
-}
-
 func (c *Gorm2Cache) ResetCache() error {
-	c.ResetHitCount()
+	c.stats.ResetHitCount()
 	ctx := context.Background()
 	err := c.cache.CleanCache(ctx)
 	if err != nil {

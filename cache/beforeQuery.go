@@ -31,16 +31,20 @@ func BeforeQuery(cache *Gorm2Cache) func(db *gorm.DB) {
 		if util.ShouldCache(tableName, cache.Config.Tables) {
 			if cache.Config.CacheLevel == config.CacheLevelAll || cache.Config.CacheLevel == config.CacheLevelOnlySearch {
 				// search cache hit
-
 				cacheValue, err := cache.GetSearchCache(ctx, tableName, sql, db.Statement.Vars...)
 				if err != nil {
 					if !errors.Is(err, storage.ErrCacheNotFound) {
 						cache.Logger.CtxError(ctx, "[BeforeQuery] get cache value for sql %s error: %v", sql, err)
 					}
+					cache.stats.IncrMissCount()
 					db.Error = nil
 					return
 				}
 				cache.Logger.CtxInfo(ctx, "[BeforeQuery] get value: %s", cacheValue)
+				if cacheValue == "recordNotFound" { // 应对缓存穿透
+					db.Error = util.RecordNotFoundCacheHit
+					return
+				}
 				rowsAffectedPos := strings.Index(cacheValue, "|")
 				db.RowsAffected, err = strconv.ParseInt(cacheValue[:rowsAffectedPos], 10, 64)
 				if err != nil {

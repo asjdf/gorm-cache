@@ -10,6 +10,10 @@ import (
 
 func AfterDelete(cache *Gorm2Cache) func(db *gorm.DB) {
 	return func(db *gorm.DB) {
+		if db.RowsAffected == 0 {
+			return // no rows affected, no need to invalidate cache
+		}
+
 		tableName := ""
 		if db.Statement.Schema != nil {
 			tableName = db.Statement.Schema.Table
@@ -66,7 +70,9 @@ func AfterDelete(cache *Gorm2Cache) func(db *gorm.DB) {
 				}
 			}()
 
-			wg.Wait()
+			if !cache.Config.AsyncWrite {
+				wg.Wait()
+			}
 		}
 	}
 }
