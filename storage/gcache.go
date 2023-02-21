@@ -21,6 +21,7 @@ func NewGcache(builder *gcache.CacheBuilder) *Gcache {
 type Gcache struct {
 	builder *gcache.CacheBuilder
 	cache   gcache.Cache
+	sync.RWMutex
 
 	once sync.Once
 }
@@ -36,6 +37,8 @@ func (g *Gcache) Init(config *Config, prefix string) error {
 }
 
 func (g *Gcache) BatchKeyExist(ctx context.Context, keys []string) (bool, error) {
+	g.RLock()
+	defer g.RUnlock()
 	for _, key := range keys {
 		if !g.cache.Has(key) {
 			return false, nil
@@ -45,10 +48,14 @@ func (g *Gcache) BatchKeyExist(ctx context.Context, keys []string) (bool, error)
 }
 
 func (g *Gcache) KeyExists(ctx context.Context, key string) (bool, error) {
+	g.RLock()
+	defer g.RUnlock()
 	return g.cache.Has(key), nil
 }
 
 func (g *Gcache) GetValue(ctx context.Context, key string) (string, error) {
+	g.RLock()
+	defer g.RUnlock()
 	v, err := g.cache.Get(key)
 	if err != nil {
 		return "", err
@@ -57,6 +64,8 @@ func (g *Gcache) GetValue(ctx context.Context, key string) (string, error) {
 }
 
 func (g *Gcache) BatchGetValues(ctx context.Context, keys []string) ([]string, error) {
+	g.RLock()
+	defer g.RUnlock()
 	values := make([]string, 0, len(keys))
 	for _, key := range keys {
 		v, err := g.cache.Get(key)
@@ -69,11 +78,15 @@ func (g *Gcache) BatchGetValues(ctx context.Context, keys []string) ([]string, e
 }
 
 func (g *Gcache) CleanCache(ctx context.Context) error {
+	g.Lock()
+	defer g.Unlock()
 	g.cache.Purge()
 	return nil
 }
 
 func (g *Gcache) DeleteKeysWithPrefix(ctx context.Context, keyPrefix string) error {
+	g.Lock()
+	defer g.Unlock()
 	all := g.cache.Keys(false)
 	for _, k := range all {
 		if key, ok := k.(string); ok && strings.HasPrefix(key, keyPrefix) {
@@ -84,11 +97,15 @@ func (g *Gcache) DeleteKeysWithPrefix(ctx context.Context, keyPrefix string) err
 }
 
 func (g *Gcache) DeleteKey(ctx context.Context, key string) error {
+	g.Lock()
+	defer g.Unlock()
 	g.cache.Remove(key)
 	return nil
 }
 
 func (g *Gcache) BatchDeleteKeys(ctx context.Context, keys []string) error {
+	g.Lock()
+	defer g.Unlock()
 	for _, key := range keys {
 		g.cache.Remove(key)
 	}
@@ -96,6 +113,8 @@ func (g *Gcache) BatchDeleteKeys(ctx context.Context, keys []string) error {
 }
 
 func (g *Gcache) BatchSetKeys(ctx context.Context, kvs []util.Kv) error {
+	g.Lock()
+	defer g.Unlock()
 	for _, kv := range kvs {
 		if err := g.SetKey(ctx, kv); err != nil {
 			return err
@@ -105,5 +124,7 @@ func (g *Gcache) BatchSetKeys(ctx context.Context, kvs []util.Kv) error {
 }
 
 func (g *Gcache) SetKey(ctx context.Context, kv util.Kv) error {
+	g.Lock()
+	defer g.Unlock()
 	return g.cache.Set(kv.Key, kv.Value)
 }
