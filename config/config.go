@@ -17,6 +17,9 @@ type CacheConfig struct {
 	// else we do nothing to outdated cache.
 	InvalidateWhenUpdate bool
 
+	// AsyncWrite if true, then we will write cache in async mode
+	AsyncWrite bool
+
 	// CacheTTL cache ttl in ms, where 0 represents forever
 	CacheTTL int64
 

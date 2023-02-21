@@ -55,7 +55,7 @@ func main() {
 4. Update (Update/Updates/UpdateColumn/UpdateColumns/Save)
 5. Row (Row/Rows/Scan)
 
-本库不支持Row操作的缓存。
+本库不支持Row操作的缓存。（WIP）
 
 ## 存储介质细节
 

@@ -88,7 +88,9 @@ func AfterQuery(cache *Gorm2Cache) func(db *gorm.DB) {
 					}
 				}
 			}()
-			wg.Wait()
+			if !cache.Config.AsyncWrite {
+				wg.Wait()
+			}
 			return
 		}
 
