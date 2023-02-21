@@ -74,8 +74,8 @@ func (g *Gcache) CleanCache(ctx context.Context) error {
 }
 
 func (g *Gcache) DeleteKeysWithPrefix(ctx context.Context, keyPrefix string) error {
-	all := g.cache.GetALL(false)
-	for k, _ := range all {
+	all := g.cache.Keys(false)
+	for _, k := range all {
 		if key, ok := k.(string); ok && strings.HasPrefix(key, keyPrefix) {
 			g.cache.Remove(key)
 		}
