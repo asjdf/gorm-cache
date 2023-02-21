@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/karlseguin/ccache/v3"
+	"sync"
 	"time"
 
 	"github.com/asjdf/gorm-cache/config"
@@ -27,12 +28,16 @@ type Memory struct {
 
 	cache *ccache.Cache[string]
 	ttl   int64
+
+	once sync.Once
 }
 
 func (m *Memory) Init(conf *config.CacheConfig, prefix string) error {
-	c := ccache.New(ccache.Configure[string]().MaxSize(m.config.MaxSize))
-	m.cache = c
-	m.ttl = conf.CacheTTL
+	m.once.Do(func() {
+		c := ccache.New(ccache.Configure[string]().MaxSize(m.config.MaxSize))
+		m.cache = c
+		m.ttl = conf.CacheTTL
+	})
 	return nil
 }
 

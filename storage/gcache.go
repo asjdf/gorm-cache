@@ -6,6 +6,7 @@ import (
 	"github.com/asjdf/gorm-cache/util"
 	"github.com/bluele/gcache"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -21,13 +22,17 @@ func NewGcache(builder *gcache.CacheBuilder) *Gcache {
 type Gcache struct {
 	builder *gcache.CacheBuilder
 	cache   gcache.Cache
+
+	once sync.Once
 }
 
 func (g *Gcache) Init(config *config.CacheConfig, prefix string) error {
-	if config.CacheTTL != 0 {
-		g.builder.Expiration(time.Duration(config.CacheTTL) * time.Microsecond)
-	}
-	g.cache = g.builder.Build()
+	g.once.Do(func() {
+		if config.CacheTTL != 0 {
+			g.builder.Expiration(time.Duration(config.CacheTTL) * time.Microsecond)
+		}
+		g.cache = g.builder.Build()
+	})
 	return nil
 }
 
