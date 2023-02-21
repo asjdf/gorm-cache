@@ -14,6 +14,7 @@
 import (
     "context"
     "github.com/asjdf/gorm-cache/cache"
+    "github.com/asjdf/gorm-cache/storage"
     "github.com/redis/go-redis/v9"
 )
 
@@ -33,7 +34,7 @@ func main() {
         CacheMaxItemCnt:      50,   // if length of objects retrieved one single time 
                                     // exceeds this number, then don't cache
     })
-    // More options in `config.config.go`
+    // More options in `config/config.go`
     db.Use(cache)    // use gorm plugin
     // cache.AttachToDB(db)
 
