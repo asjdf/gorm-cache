@@ -5,10 +5,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/asjdf/gorm-cache/config"
 	"github.com/asjdf/gorm-cache/util"
 	"github.com/redis/go-redis/v9"
 )
+
+var _ DataStorage = &Redis{}
 
 func NewRedisWithClient(client *redis.Client) *Redis {
 	return &Redis{
@@ -23,7 +24,7 @@ func NewRedisWithOptions(options *redis.Options) *Redis {
 type Redis struct {
 	client    *redis.Client
 	ttl       int64
-	logger    config.LoggerInterface
+	logger    util.LoggerInterface
 	keyPrefix string
 
 	batchExistSha string
@@ -32,12 +33,12 @@ type Redis struct {
 	once sync.Once
 }
 
-func (r *Redis) Init(conf *config.CacheConfig, prefix string) error {
+func (r *Redis) Init(conf *Config, prefix string) error {
 	var err error
 	r.once.Do(func() {
-		r.ttl = conf.CacheTTL
-		r.logger = conf.DebugLogger
-		r.logger.SetIsDebug(conf.DebugMode)
+		r.ttl = conf.TTL
+		r.logger = conf.Logger
+		r.logger.SetIsDebug(conf.Debug)
 		r.keyPrefix = prefix
 		err = r.initScripts()
 	})

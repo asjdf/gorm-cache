@@ -1,6 +1,9 @@
 package config
 
-import "github.com/asjdf/gorm-cache/storage"
+import (
+	"github.com/asjdf/gorm-cache/storage"
+	"github.com/asjdf/gorm-cache/util"
+)
 
 type CacheConfig struct {
 	// CacheLevel there are 2 types of cache and 4 kinds of cache option
@@ -34,7 +37,7 @@ type CacheConfig struct {
 	DebugMode bool
 
 	// DebugLogger
-	DebugLogger LoggerInterface
+	DebugLogger util.LoggerInterface
 }
 
 type CacheLevel int

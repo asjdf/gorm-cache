@@ -3,7 +3,6 @@ package storage
 import (
 	"context"
 	"errors"
-	"github.com/asjdf/gorm-cache/config"
 	"github.com/asjdf/gorm-cache/util"
 )
 
@@ -11,8 +10,14 @@ var (
 	ErrCacheNotFound = errors.New("cache not found")
 )
 
+type Config struct {
+	TTL    int64
+	Debug  bool
+	Logger util.LoggerInterface
+}
+
 type DataStorage interface {
-	Init(config *config.CacheConfig, prefix string) error
+	Init(config *Config, prefix string) error
 	CleanCache(ctx context.Context) error
 
 	// read

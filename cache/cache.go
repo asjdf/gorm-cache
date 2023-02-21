@@ -31,7 +31,7 @@ type Cache interface {
 
 type Gorm2Cache struct {
 	Config     *config.CacheConfig
-	Logger     config.LoggerInterface
+	Logger     util.LoggerInterface
 	InstanceId string
 
 	db       *gorm.DB
@@ -90,12 +90,16 @@ func (c *Gorm2Cache) Init() error {
 	}
 
 	if c.Config.DebugLogger == nil {
-		c.Config.DebugLogger = &config.DefaultLoggerImpl{}
+		c.Config.DebugLogger = &util.DefaultLogger{}
 	}
 	c.Logger = c.Config.DebugLogger
 	c.Logger.SetIsDebug(c.Config.DebugMode)
 
-	err := c.cache.Init(c.Config, prefix)
+	err := c.cache.Init(&storage.Config{
+		TTL:    c.Config.CacheTTL,
+		Debug:  c.Config.DebugMode,
+		Logger: c.Logger,
+	}, prefix)
 	if err != nil {
 		c.Logger.CtxError(context.Background(), "[Init] cache init error: %v", err)
 		return err

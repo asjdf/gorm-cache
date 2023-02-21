@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/asjdf/gorm-cache/config"
 	"github.com/asjdf/gorm-cache/util"
 )
 
@@ -32,11 +31,11 @@ type Memory struct {
 	once sync.Once
 }
 
-func (m *Memory) Init(conf *config.CacheConfig, prefix string) error {
+func (m *Memory) Init(conf *Config, prefix string) error {
 	m.once.Do(func() {
 		c := ccache.New(ccache.Configure[string]().MaxSize(m.config.MaxSize))
 		m.cache = c
-		m.ttl = conf.CacheTTL
+		m.ttl = conf.TTL
 	})
 	return nil
 }

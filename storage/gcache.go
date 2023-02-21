@@ -2,7 +2,6 @@ package storage
 
 import (
 	"context"
-	"github.com/asjdf/gorm-cache/config"
 	"github.com/asjdf/gorm-cache/util"
 	"github.com/bluele/gcache"
 	"strings"
@@ -26,10 +25,10 @@ type Gcache struct {
 	once sync.Once
 }
 
-func (g *Gcache) Init(config *config.CacheConfig, prefix string) error {
+func (g *Gcache) Init(config *Config, prefix string) error {
 	g.once.Do(func() {
-		if config.CacheTTL != 0 {
-			g.builder.Expiration(time.Duration(config.CacheTTL) * time.Microsecond)
+		if config.TTL != 0 {
+			g.builder.Expiration(time.Duration(config.TTL) * time.Microsecond)
 		}
 		g.cache = g.builder.Build()
 	})
