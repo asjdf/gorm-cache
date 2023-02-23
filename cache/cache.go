@@ -61,12 +61,7 @@ func (c *Gorm2Cache) Initialize(db *gorm.DB) (err error) {
 		return err
 	}
 
-	err = db.Callback().Query().Before("gorm:query").Register("gorm:cache:before_query", BeforeQuery(c))
-	if err != nil {
-		return err
-	}
-
-	err = db.Callback().Query().After("gorm:query").Register("gorm:cache:after_query", AfterQuery(c))
+	err = newQueryHandler(c).Bind(db)
 	if err != nil {
 		return err
 	}
