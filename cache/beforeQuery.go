@@ -36,7 +36,7 @@ func BeforeQuery(cache *Gorm2Cache) func(db *gorm.DB) {
 					if !errors.Is(err, storage.ErrCacheNotFound) {
 						cache.Logger.CtxError(ctx, "[BeforeQuery] get cache value for sql %s error: %v", sql, err)
 					}
-					cache.stats.IncrMissCount()
+					cache.IncrMissCount()
 					db.Error = nil
 					return
 				}
@@ -58,7 +58,6 @@ func BeforeQuery(cache *Gorm2Cache) func(db *gorm.DB) {
 					db.Error = nil
 					return
 				}
-				cache.IncrHitCount()
 				db.Error = util.SearchCacheHit
 				return
 			}
@@ -109,7 +108,6 @@ func BeforeQuery(cache *Gorm2Cache) func(db *gorm.DB) {
 					db.Error = util.ErrCacheUnmarshal
 					return
 				}
-				cache.IncrHitCount()
 				db.Error = util.PrimaryCacheHit
 				return
 			}
