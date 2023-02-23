@@ -107,18 +107,21 @@ func AfterQuery(cache *Gorm2Cache) func(db *gorm.DB) {
 		}
 		if errors.Is(db.Error, util.RecordNotFoundCacheHit) {
 			db.Error = gorm.ErrRecordNotFound
+			cache.IncrHitCount()
 			return
 		}
 
 		if errors.Is(db.Error, util.SearchCacheHit) {
 			// search cache hit
 			db.Error = nil
+			cache.IncrHitCount()
 			return
 		}
 
 		if errors.Is(db.Error, util.PrimaryCacheHit) {
 			// primary cache hit
 			db.Error = nil
+			cache.IncrHitCount()
 			return
 		}
 	}
