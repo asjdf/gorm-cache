@@ -103,7 +103,7 @@ func (h *queryHandler) BeforeQuery() func(db *gorm.DB) {
 			h.singleFlight.mu.Unlock()
 			db.InstanceSet("gorm:cache:query:single_flight_call", c)
 
-			tryPrimaryCache := func() (hitted bool) {
+			tryPrimaryCache := func() (hit bool) {
 				primaryKeys := getPrimaryKeysFromWhereClause(db)
 				cache.Logger.CtxInfo(ctx, "[BeforeQuery] parse primary keys = %v", primaryKeys)
 
@@ -150,11 +150,11 @@ func (h *queryHandler) BeforeQuery() func(db *gorm.DB) {
 					return
 				}
 				db.Error = util.PrimaryCacheHit
-				hitted = true
+				hit = true
 				return
 			}
 
-			trySearchCache := func() (hitted bool) {
+			trySearchCache := func() (hit bool) {
 				// search cache hit
 				cacheValue, err := cache.GetSearchCache(ctx, tableName, sql, db.Statement.Vars...)
 				if err != nil {
@@ -167,7 +167,7 @@ func (h *queryHandler) BeforeQuery() func(db *gorm.DB) {
 				cache.Logger.CtxInfo(ctx, "[BeforeQuery] get value: %s", cacheValue)
 				if cacheValue == "recordNotFound" { // 应对缓存穿透
 					db.Error = util.RecordNotFoundCacheHit
-					hitted = true
+					hit = true
 					return
 				}
 				rowsAffectedPos := strings.Index(cacheValue, "|")
@@ -184,7 +184,7 @@ func (h *queryHandler) BeforeQuery() func(db *gorm.DB) {
 					return
 				}
 				db.Error = util.SearchCacheHit
-				hitted = true
+				hit = true
 				return
 			}
 
