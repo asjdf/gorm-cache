@@ -167,6 +167,7 @@ func (h *queryHandler) BeforeQuery() func(db *gorm.DB) {
 				cache.Logger.CtxInfo(ctx, "[BeforeQuery] get value: %s", cacheValue)
 				if cacheValue == "recordNotFound" { // 应对缓存穿透
 					db.Error = util.RecordNotFoundCacheHit
+					hitted = true
 					return
 				}
 				rowsAffectedPos := strings.Index(cacheValue, "|")
