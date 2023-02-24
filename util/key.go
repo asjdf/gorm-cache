@@ -44,3 +44,17 @@ func GenSearchCacheKey(instanceId string, tableName string, sql string, vars ...
 func GenSearchCachePrefix(instanceId string, tableName string) string {
 	return GormCachePrefix + ":" + instanceId + ":s:" + tableName
 }
+
+func GenSingleFlightKey(tableName string, sql string, vars ...interface{}) string {
+	buf := strings.Builder{}
+	buf.WriteString(sql)
+	for _, v := range vars {
+		pv := reflect.ValueOf(v)
+		if pv.Kind() == reflect.Ptr {
+			buf.WriteString(fmt.Sprintf(":%v", pv.Elem()))
+		} else {
+			buf.WriteString(fmt.Sprintf(":%v", v))
+		}
+	}
+	return fmt.Sprintf("%s:%s", tableName, buf.String())
+}
