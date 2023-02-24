@@ -6,6 +6,7 @@ import (
 	"github.com/asjdf/gorm-cache/config"
 	"github.com/asjdf/gorm-cache/storage"
 	"github.com/asjdf/gorm-cache/util"
+	"github.com/hashicorp/go-multierror"
 	"gorm.io/gorm"
 	"gorm.io/gorm/callbacks"
 	"reflect"
@@ -56,8 +57,17 @@ func (h *queryHandler) BeforeQuery() func(db *gorm.DB) {
 		db.InstanceSet("gorm:cache:vars", db.Statement.Vars)
 
 		if util.ShouldCache(tableName, cache.Config.Tables) {
+			hitted := false
+			defer func() {
+				if hitted {
+					cache.IncrHitCount()
+				} else {
+					cache.IncrMissCount()
+				}
+			}()
+
 			// singleFlight Check
-			singleFlightKey := fmt.Sprintf("%s:%s", tableName, sql)
+			singleFlightKey := fmt.Sprintf("%s:%s", tableName, sql) // todo: key with vars
 			h.singleFlight.mu.Lock()
 			if h.singleFlight.m == nil {
 				h.singleFlight.m = make(map[string]*call)
@@ -78,11 +88,11 @@ func (h *queryHandler) BeforeQuery() func(db *gorm.DB) {
 					_ = db.AddError(err)
 					return
 				}
+				hitted = true
 				db.RowsAffected = c.rowsAffected
-				if c.err == nil { // 为保证后续流程不走，必须设一个error
-					db.Error = util.SingleFlightHit
-				} else {
-					db.Error = c.err
+				db.Error = multierror.Append(util.SingleFlightHit) // 为保证后续流程不走，必须设一个error
+				if c.err != nil {
+					db.Error = multierror.Append(db.Error, c.err)
 				}
 				h.cache.Logger.CtxInfo(ctx, "[BeforeQuery] single flight hit for key %v", singleFlightKey)
 				return
@@ -93,8 +103,7 @@ func (h *queryHandler) BeforeQuery() func(db *gorm.DB) {
 			h.singleFlight.mu.Unlock()
 			db.InstanceSet("gorm:cache:query:single_flight_call", c)
 
-			// try primary cache first
-			if cache.Config.CacheLevel == config.CacheLevelAll || cache.Config.CacheLevel == config.CacheLevelOnlyPrimary {
+			tryPrimaryCache := func() (hitted bool) {
 				primaryKeys := getPrimaryKeysFromWhereClause(db)
 				cache.Logger.CtxInfo(ctx, "[BeforeQuery] parse primary keys = %v", primaryKeys)
 
@@ -141,17 +150,17 @@ func (h *queryHandler) BeforeQuery() func(db *gorm.DB) {
 					return
 				}
 				db.Error = util.PrimaryCacheHit
+				hitted = true
 				return
 			}
 
-			if cache.Config.CacheLevel == config.CacheLevelAll || cache.Config.CacheLevel == config.CacheLevelOnlySearch {
+			trySearchCache := func() (hitted bool) {
 				// search cache hit
 				cacheValue, err := cache.GetSearchCache(ctx, tableName, sql, db.Statement.Vars...)
 				if err != nil {
 					if !errors.Is(err, storage.ErrCacheNotFound) {
 						cache.Logger.CtxError(ctx, "[BeforeQuery] get cache value for sql %s error: %v", sql, err)
 					}
-					cache.IncrMissCount()
 					db.Error = nil
 					return
 				}
@@ -174,7 +183,20 @@ func (h *queryHandler) BeforeQuery() func(db *gorm.DB) {
 					return
 				}
 				db.Error = util.SearchCacheHit
+				hitted = true
 				return
+			}
+
+			if cache.Config.CacheLevel == config.CacheLevelAll || cache.Config.CacheLevel == config.CacheLevelOnlyPrimary {
+				if tryPrimaryCache() {
+					hitted = true
+					return
+				}
+			}
+			if cache.Config.CacheLevel == config.CacheLevelAll || cache.Config.CacheLevel == config.CacheLevelOnlySearch {
+				if !hitted && trySearchCache() {
+					hitted = true
+				}
 			}
 		}
 	}
@@ -196,7 +218,11 @@ func (h *queryHandler) AfterQuery() func(db *gorm.DB) {
 			varObj, _ := db.InstanceGet("gorm:cache:vars")
 			vars := varObj.([]interface{})
 
-			if db.Error == nil && util.ShouldCache(tableName, cache.Config.Tables) {
+			if !util.ShouldCache(tableName, cache.Config.Tables) {
+				return
+			}
+
+			if db.Error == nil {
 				// error is nil -> cache not hit, we cache newly retrieved data
 				primaryKeys, objects := getObjectsAfterLoad(db)
 
@@ -266,29 +292,45 @@ func (h *queryHandler) AfterQuery() func(db *gorm.DB) {
 				return
 			}
 
-			if !cache.Config.DisableCachePenetrationProtect {
-				if errors.Is(db.Error, gorm.ErrRecordNotFound) { // 应对缓存穿透 未来可能考虑使用其他过滤器实现：如布隆过滤器
-					cache.Logger.CtxInfo(ctx, "[AfterQuery] set cache: %v", "recordNotFound")
-					err := cache.SetSearchCache(ctx, "recordNotFound", tableName, sql, vars...)
-					if err != nil {
-						cache.Logger.CtxError(ctx, "[AfterQuery] set search cache for sql: %s error: %v", sql, err)
-						return
-					}
-					cache.Logger.CtxInfo(ctx, "[AfterQuery] sql %s cached", sql)
+			// 应对缓存穿透 未来可能考虑使用其他过滤器实现：如布隆过滤器
+			if db.Error == gorm.ErrRecordNotFound && !cache.Config.DisableCachePenetrationProtect {
+				cache.Logger.CtxInfo(ctx, "[AfterQuery] set cache: %v", "recordNotFound")
+				err := cache.SetSearchCache(ctx, "recordNotFound", tableName, sql, vars...)
+				if err != nil {
+					cache.Logger.CtxError(ctx, "[AfterQuery] set search cache for sql: %s error: %v", sql, err)
 					return
 				}
-			}
-
-			switch db.Error {
-			case util.RecordNotFoundCacheHit:
-				db.Error = gorm.ErrRecordNotFound
-				cache.IncrHitCount()
-			case util.SearchCacheHit, util.PrimaryCacheHit, util.SingleFlightHit:
-				db.Error = nil
-				cache.IncrHitCount()
+				cache.Logger.CtxInfo(ctx, "[AfterQuery] sql %s cached", sql)
+				return
 			}
 		}()
+		// 之所以将上面的部分包在一个匿名函数中是为了方便
+		// 上面的cache完成后直接传播给其他等待中的goroutine
+		// 上面只处理非singleflight且无错误或记录不存在的情况
 		h.fillCallAfterQuery(db)
+
+		// 下面处理命中了缓存的情况
+		// 有以下几种err是专门用来传状态的：正常的cachehit 这种情况不存在error
+		// RecordNotFoundCacheHit 这种情况只会在notfound之后出现
+		// SingleFlightHit 这种情况下error中除了SingleFlightHit还可能会存在其他error来自gorm的error
+		// 且遇到任何一种hit我们都可以认为是命中了缓存 同时只可能命中至多两个hit（single+其他
+		if merr, ok := db.Error.(*multierror.Error); ok {
+			errs := merr.WrappedErrors()
+			if errors.Is(errs[0], util.SingleFlightHit) {
+				if len(errs) > 1 {
+					db.Error = errs[1]
+				} else {
+					db.Error = nil
+				}
+			}
+		}
+
+		switch db.Error {
+		case util.RecordNotFoundCacheHit:
+			db.Error = gorm.ErrRecordNotFound
+		case util.SearchCacheHit, util.PrimaryCacheHit:
+			db.Error = nil
+		}
 	}
 }
 
