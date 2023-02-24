@@ -57,9 +57,9 @@ func (h *queryHandler) BeforeQuery() func(db *gorm.DB) {
 		db.InstanceSet("gorm:cache:vars", db.Statement.Vars)
 
 		if util.ShouldCache(tableName, cache.Config.Tables) {
-			hitted := false
+			hit := false
 			defer func() {
-				if hitted {
+				if hit {
 					cache.IncrHitCount()
 				} else {
 					cache.IncrMissCount()
@@ -67,7 +67,7 @@ func (h *queryHandler) BeforeQuery() func(db *gorm.DB) {
 			}()
 
 			// singleFlight Check
-			singleFlightKey := fmt.Sprintf("%s:%s", tableName, sql) // todo: key with vars
+			singleFlightKey := util.GenSingleFlightKey(tableName, sql, db.Statement.Vars...)
 			h.singleFlight.mu.Lock()
 			if h.singleFlight.m == nil {
 				h.singleFlight.m = make(map[string]*call)
@@ -88,7 +88,7 @@ func (h *queryHandler) BeforeQuery() func(db *gorm.DB) {
 					_ = db.AddError(err)
 					return
 				}
-				hitted = true
+				hit = true
 				db.RowsAffected = c.rowsAffected
 				db.Error = multierror.Append(util.SingleFlightHit) // 为保证后续流程不走，必须设一个error
 				if c.err != nil {
@@ -103,7 +103,7 @@ func (h *queryHandler) BeforeQuery() func(db *gorm.DB) {
 			h.singleFlight.mu.Unlock()
 			db.InstanceSet("gorm:cache:query:single_flight_call", c)
 
-			tryPrimaryCache := func() (hitted bool) {
+			tryPrimaryCache := func() (hit bool) {
 				primaryKeys := getPrimaryKeysFromWhereClause(db)
 				cache.Logger.CtxInfo(ctx, "[BeforeQuery] parse primary keys = %v", primaryKeys)
 
@@ -150,11 +150,11 @@ func (h *queryHandler) BeforeQuery() func(db *gorm.DB) {
 					return
 				}
 				db.Error = util.PrimaryCacheHit
-				hitted = true
+				hit = true
 				return
 			}
 
-			trySearchCache := func() (hitted bool) {
+			trySearchCache := func() (hit bool) {
 				// search cache hit
 				cacheValue, err := cache.GetSearchCache(ctx, tableName, sql, db.Statement.Vars...)
 				if err != nil {
@@ -167,7 +167,7 @@ func (h *queryHandler) BeforeQuery() func(db *gorm.DB) {
 				cache.Logger.CtxInfo(ctx, "[BeforeQuery] get value: %s", cacheValue)
 				if cacheValue == "recordNotFound" { // 应对缓存穿透
 					db.Error = util.RecordNotFoundCacheHit
-					hitted = true
+					hit = true
 					return
 				}
 				rowsAffectedPos := strings.Index(cacheValue, "|")
@@ -184,19 +184,19 @@ func (h *queryHandler) BeforeQuery() func(db *gorm.DB) {
 					return
 				}
 				db.Error = util.SearchCacheHit
-				hitted = true
+				hit = true
 				return
 			}
 
 			if cache.Config.CacheLevel == config.CacheLevelAll || cache.Config.CacheLevel == config.CacheLevelOnlyPrimary {
 				if tryPrimaryCache() {
-					hitted = true
+					hit = true
 					return
 				}
 			}
 			if cache.Config.CacheLevel == config.CacheLevelAll || cache.Config.CacheLevel == config.CacheLevelOnlySearch {
-				if !hitted && trySearchCache() {
-					hitted = true
+				if !hit && trySearchCache() {
+					hit = true
 				}
 			}
 		}
