@@ -33,7 +33,7 @@ func (h *queryHandler) Bind(db *gorm.DB) error {
 	if err != nil {
 		return err
 	}
-	err = db.Callback().Query().After("gorm:query").Register("gorm:cache:after_query", h.AfterQuery())
+	err = db.Callback().Query().After("gorm:after_query").Register("gorm:cache:after_query", h.AfterQuery())
 	if err != nil {
 		return err
 	}
