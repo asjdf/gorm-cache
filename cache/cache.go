@@ -76,8 +76,6 @@ func (c *Gorm2Cache) AttachToDB(db *gorm.DB) {
 func (c *Gorm2Cache) Init() error {
 	c.InstanceId = util.GenInstanceId()
 
-	prefix := util.GormCachePrefix + ":" + c.InstanceId
-
 	if c.cache != nil {
 		c.cache = c.Config.CacheStorage
 	} else {
@@ -94,7 +92,7 @@ func (c *Gorm2Cache) Init() error {
 		TTL:    c.Config.CacheTTL,
 		Debug:  c.Config.DebugMode,
 		Logger: c.Logger,
-	}, prefix)
+	})
 	if err != nil {
 		c.Logger.CtxError(context.Background(), "[Init] cache init error: %v", err)
 		return err

@@ -29,7 +29,7 @@ func main() {
     
     cache, _ := cache.NewGorm2Cache(&config.CacheConfig{
         CacheLevel:           config.CacheLevelAll,
-        CacheStorage:         storage.NewRedisWithClient(redisClient),
+        CacheStorage:         storage.NewRedis(&storage.RedisStoreConfig{Client: redisClient}),
         InvalidateWhenUpdate: true, // when you create/update/delete objects, invalidate cache
         CacheTTL:             5000, // 5000 ms
         CacheMaxItemCnt:      50,   // if length of objects retrieved one single time 

@@ -26,7 +26,7 @@ type Gcache struct {
 	once sync.Once
 }
 
-func (g *Gcache) Init(config *Config, prefix string) error {
+func (g *Gcache) Init(config *Config) error {
 	g.once.Do(func() {
 		if config.TTL != 0 {
 			g.builder.Expiration(time.Duration(config.TTL) * time.Microsecond)

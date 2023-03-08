@@ -11,14 +11,29 @@ import (
 
 var _ DataStorage = &Redis{}
 
-func NewRedisWithClient(client *redis.Client) *Redis {
-	return &Redis{
-		client: client,
-	}
+type RedisStoreConfig struct {
+	KeyPrefix string // key prefix will be random if not set
+
+	Client  *redis.Client // if Client is not nil, Options will be ignored
+	Options *redis.Options
 }
 
-func NewRedisWithOptions(options *redis.Options) *Redis {
-	return NewRedisWithClient(redis.NewClient(options))
+func NewRedis(config ...*RedisStoreConfig) *Redis {
+	if len(config) == 0 {
+		panic("redis config is required")
+	}
+	if config[0].KeyPrefix == "" {
+		config[0].KeyPrefix = util.GormCachePrefix + ":" + util.GenInstanceId()
+	}
+	r := &Redis{
+		keyPrefix: config[0].KeyPrefix,
+	}
+	if config[0].Client != nil {
+		r.client = config[0].Client
+		return r
+	}
+	r.client = redis.NewClient(config[0].Options)
+	return r
 }
 
 type Redis struct {
@@ -33,13 +48,12 @@ type Redis struct {
 	once sync.Once
 }
 
-func (r *Redis) Init(conf *Config, prefix string) error {
+func (r *Redis) Init(conf *Config) error {
 	var err error
 	r.once.Do(func() {
 		r.ttl = conf.TTL
 		r.logger = conf.Logger
 		r.logger.SetIsDebug(conf.Debug)
-		r.keyPrefix = prefix
 		err = r.initScripts()
 	})
 	return err

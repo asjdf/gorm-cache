@@ -10,6 +10,8 @@ import (
 	"github.com/asjdf/gorm-cache/util"
 )
 
+var _ DataStorage = &Memory{}
+
 type MemStoreConfig struct {
 	MaxSize int64 // maximal items in primary cache
 }
@@ -18,8 +20,11 @@ var DefaultMemStoreConfig = &MemStoreConfig{
 	MaxSize: 1000,
 }
 
-func NewMem(config *MemStoreConfig) *Memory {
-	return &Memory{config: config}
+func NewMem(config ...*MemStoreConfig) *Memory {
+	if len(config) == 0 {
+		config = append(config, DefaultMemStoreConfig)
+	}
+	return &Memory{config: config[0]}
 }
 
 type Memory struct {
@@ -31,7 +36,7 @@ type Memory struct {
 	once sync.Once
 }
 
-func (m *Memory) Init(conf *Config, prefix string) error {
+func (m *Memory) Init(conf *Config) error {
 	m.once.Do(func() {
 		c := ccache.New(ccache.Configure[string]().MaxSize(m.config.MaxSize))
 		m.cache = c

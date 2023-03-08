@@ -17,7 +17,7 @@ type Config struct {
 }
 
 type DataStorage interface {
-	Init(config *Config, prefix string) error
+	Init(config *Config) error
 	CleanCache(ctx context.Context) error
 
 	// read
