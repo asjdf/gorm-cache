@@ -10,6 +10,7 @@ type TestModel struct {
 	Value6    int64  `gorm:"column:value6"`
 	Value7    int64  `gorm:"column:value7"`
 	Value8    int64  `gorm:"column:value8"`
+	Value9    string `gorm:"column:value9"`
 	PtrValue1 *int64 `gorm:"column:ptr_value1"`
 }
 

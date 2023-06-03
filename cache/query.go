@@ -224,6 +224,16 @@ func (h *queryHandler) AfterQuery() func(db *gorm.DB) {
 			}
 
 			if db.Error == nil {
+				destValue := reflect.Indirect(reflect.ValueOf(db.Statement.Dest))
+				// 如果是结构体应该能提主键出来
+				// 如果是数组需要判断内部元素是不是结构体，不是结构体的都提不了主键
+				if destValue.Kind() == reflect.Slice || destValue.Kind() == reflect.Array {
+					if (destValue.Type().Elem().Kind() == reflect.Pointer && destValue.Type().Elem().Elem().Kind() != reflect.Struct) ||
+						(destValue.Type().Elem().Kind() != reflect.Pointer && destValue.Type().Elem().Kind() != reflect.Struct) {
+						return
+					}
+				}
+
 				// error is nil -> cache not hit, we cache newly retrieved data
 				primaryKeys, objects := getObjectsAfterLoad(db)
 
@@ -311,7 +321,7 @@ func (h *queryHandler) AfterQuery() func(db *gorm.DB) {
 		h.fillCallAfterQuery(db)
 
 		// 下面处理命中了缓存的情况
-		// 有以下几种err是专门用来传状态的：正常的cachehit 这种情况不存在error
+		// 有以下几种err是专门用来传状态的：正常的cacheHit 这种情况不存在error
 		// RecordNotFoundCacheHit 这种情况只会在notfound之后出现
 		// SingleFlightHit 这种情况下error中除了SingleFlightHit还可能会存在其他error来自gorm的error
 		// 且遇到任何一种hit我们都可以认为是命中了缓存 同时只可能命中至多两个hit（single+其他

@@ -14,6 +14,8 @@ func TestPrimaryCacheFunctionality(t *testing.T) {
 
 		testPrimaryFind(primaryCache, primaryDB)
 
+		testPluck(primaryCache, primaryDB)
+
 		testPrimaryUpdate(primaryCache, primaryDB)
 
 		testPrimaryDelete(primaryCache, primaryDB)

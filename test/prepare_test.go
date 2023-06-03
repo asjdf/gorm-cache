@@ -1,6 +1,9 @@
 package test
 
-import "gorm.io/gorm"
+import (
+	"gorm.io/gorm"
+	"strconv"
+)
 
 func PrepareTableAndData(db *gorm.DB) error {
 	err := db.AutoMigrate(&TestModel{})
@@ -21,6 +24,7 @@ func PrepareTableAndData(db *gorm.DB) error {
 			Value6:    int64(i),
 			Value7:    int64(i),
 			Value8:    int64(i),
+			Value9:    strconv.Itoa(i),
 			PtrValue1: &_pValue,
 		}
 		models = append(models, model)
