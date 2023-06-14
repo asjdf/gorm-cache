@@ -245,7 +245,7 @@ func (h *queryHandler) AfterQuery() func(db *gorm.DB) {
 
 					if cache.Config.CacheLevel == config.CacheLevelAll || cache.Config.CacheLevel == config.CacheLevelOnlySearch {
 						// cache search data
-						if int64(len(objects)) > cache.Config.CacheMaxItemCnt {
+						if cache.Config.CacheMaxItemCnt != 0 && int64(len(objects)) > cache.Config.CacheMaxItemCnt {
 							return
 						}
 
@@ -273,7 +273,7 @@ func (h *queryHandler) AfterQuery() func(db *gorm.DB) {
 						if len(primaryKeys) != len(objects) {
 							return
 						}
-						if int64(len(objects)) > cache.Config.CacheMaxItemCnt {
+						if cache.Config.CacheMaxItemCnt != 0 && int64(len(objects)) > cache.Config.CacheMaxItemCnt {
 							cache.Logger.CtxInfo(ctx, "[AfterQuery] objects length is more than max item count, not cached")
 							return
 						}
