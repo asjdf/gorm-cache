@@ -76,7 +76,7 @@ func (c *Gorm2Cache) AttachToDB(db *gorm.DB) {
 func (c *Gorm2Cache) Init() error {
 	c.InstanceId = util.GenInstanceId()
 
-	if c.cache != nil {
+	if c.Config.CacheStorage != nil {
 		c.cache = c.Config.CacheStorage
 	} else {
 		c.cache = storage.NewMem(storage.DefaultMemStoreConfig)
