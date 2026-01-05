@@ -2,11 +2,12 @@ package storage
 
 import (
 	"context"
-	"github.com/asjdf/gorm-cache/util"
-	"github.com/bluele/gcache"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/asjdf/gorm-cache/util"
+	"github.com/bluele/gcache"
 )
 
 var _ DataStorage = &Gcache{}
@@ -116,7 +117,7 @@ func (g *Gcache) BatchSetKeys(ctx context.Context, kvs []util.Kv) error {
 	g.Lock()
 	defer g.Unlock()
 	for _, kv := range kvs {
-		if err := g.SetKey(ctx, kv); err != nil {
+		if err := g.cache.Set(kv.Key, kv.Value); err != nil {
 			return err
 		}
 	}
