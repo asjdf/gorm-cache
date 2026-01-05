@@ -5,16 +5,15 @@ import (
 	"math/rand"
 	"reflect"
 	"strings"
-	"time"
 )
 
 func GenInstanceId() string {
 	charList := []byte("1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
-	rand.Seed(time.Now().Unix())
+	// 使用全局随机数生成器，Go 1.20+ 已自动初始化
 	length := 5
-	str := make([]byte, 0)
+	str := make([]byte, length)
 	for i := 0; i < length; i++ {
-		str = append(str, charList[rand.Intn(len(charList))])
+		str[i] = charList[rand.Intn(len(charList))]
 	}
 	return string(str)
 }

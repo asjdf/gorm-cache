@@ -3,16 +3,17 @@ package cache
 import (
 	"errors"
 	"fmt"
+	"reflect"
+	"strconv"
+	"strings"
+	"sync"
+
 	"github.com/asjdf/gorm-cache/config"
 	"github.com/asjdf/gorm-cache/storage"
 	"github.com/asjdf/gorm-cache/util"
 	"github.com/hashicorp/go-multierror"
 	"gorm.io/gorm"
 	"gorm.io/gorm/callbacks"
-	"reflect"
-	"strconv"
-	"strings"
-	"sync"
 )
 
 // singleFlight 流程设计
@@ -171,9 +172,19 @@ func (h *queryHandler) BeforeQuery() func(db *gorm.DB) {
 					return
 				}
 				rowsAffectedPos := strings.Index(cacheValue, "|")
+				if rowsAffectedPos < 0 || rowsAffectedPos >= len(cacheValue) {
+					cache.Logger.CtxError(ctx, "[BeforeQuery] invalid cache value format, missing separator")
+					db.Error = nil
+					return
+				}
 				db.RowsAffected, err = strconv.ParseInt(cacheValue[:rowsAffectedPos], 10, 64)
 				if err != nil {
 					cache.Logger.CtxError(ctx, "[BeforeQuery] unmarshal rows affected cache error: %v", err)
+					db.Error = nil
+					return
+				}
+				if rowsAffectedPos+1 >= len(cacheValue) {
+					cache.Logger.CtxError(ctx, "[BeforeQuery] invalid cache value format, missing data after separator")
 					db.Error = nil
 					return
 				}
@@ -214,10 +225,26 @@ func (h *queryHandler) AfterQuery() func(db *gorm.DB) {
 				tableName = db.Statement.Table
 			}
 			ctx := db.Statement.Context
-			sqlObj, _ := db.InstanceGet("gorm:cache:sql")
-			sql := sqlObj.(string)
-			varObj, _ := db.InstanceGet("gorm:cache:vars")
-			vars := varObj.([]interface{})
+			sqlObj, ok := db.InstanceGet("gorm:cache:sql")
+			if !ok {
+				cache.Logger.CtxError(ctx, "[AfterQuery] cannot get sql from instance")
+				return
+			}
+			sql, ok := sqlObj.(string)
+			if !ok {
+				cache.Logger.CtxError(ctx, "[AfterQuery] sql type assertion failed")
+				return
+			}
+			varObj, ok := db.InstanceGet("gorm:cache:vars")
+			if !ok {
+				cache.Logger.CtxError(ctx, "[AfterQuery] cannot get vars from instance")
+				return
+			}
+			vars, ok := varObj.([]interface{})
+			if !ok {
+				cache.Logger.CtxError(ctx, "[AfterQuery] vars type assertion failed")
+				return
+			}
 
 			if !util.ShouldCache(tableName, cache.Config.Tables) {
 				return
@@ -346,17 +373,26 @@ func (h *queryHandler) AfterQuery() func(db *gorm.DB) {
 }
 
 func (h *queryHandler) fillCallAfterQuery(db *gorm.DB) {
-	if singleFlightCallObj, exist := db.InstanceGet("gorm:cache:query:single_flight_call"); exist {
-		c := singleFlightCallObj.(*call)
-		c.dest = db.Statement.Dest
-		c.rowsAffected = db.RowsAffected
-		c.err = db.Error
-		c.wg.Done()
-
-		h.singleFlight.mu.Lock()
-		if !c.forgotten {
-			delete(h.singleFlight.m, c.key)
-		}
-		h.singleFlight.mu.Unlock()
+	singleFlightCallObj, exist := db.InstanceGet("gorm:cache:query:single_flight_call")
+	if !exist {
+		return
 	}
+	c, ok := singleFlightCallObj.(*call)
+	if !ok {
+		// 类型断言失败，记录错误但不影响主流程
+		if db.Statement.Context != nil {
+			// 如果可能，记录日志
+		}
+		return
+	}
+	c.dest = db.Statement.Dest
+	c.rowsAffected = db.RowsAffected
+	c.err = db.Error
+	c.wg.Done()
+
+	h.singleFlight.mu.Lock()
+	if !c.forgotten {
+		delete(h.singleFlight.m, c.key)
+	}
+	h.singleFlight.mu.Unlock()
 }

@@ -133,17 +133,30 @@ func (r *Redis) GetValue(ctx context.Context, key string) (data string, err erro
 }
 
 func (r *Redis) BatchGetValues(ctx context.Context, keys []string) ([]string, error) {
+	if len(keys) == 0 {
+		return []string{}, nil
+	}
 	result := r.client.MGet(ctx, keys...)
 	if result.Err() != nil {
 		r.logger.CtxError(ctx, "[BatchGetValues] mget error: %v", result.Err())
 		return nil, result.Err()
 	}
 	slice := result.Val()
-	strs := make([]string, 0, len(slice))
-	for _, obj := range slice {
-		if obj != nil {
-			strs = append(strs, obj.(string))
+	// 确保返回的切片长度与keys长度一致，nil值用空字符串表示
+	strs := make([]string, len(keys))
+	for i, obj := range slice {
+		if i >= len(keys) {
+			break
 		}
+		if obj != nil {
+			if str, ok := obj.(string); ok {
+				strs[i] = str
+			} else {
+				r.logger.CtxError(ctx, "[BatchGetValues] unexpected type for key %s: %T", keys[i], obj)
+				strs[i] = ""
+			}
+		}
+		// obj == nil 时，strs[i] 保持为空字符串（零值）
 	}
 	return strs, nil
 }
