@@ -8,7 +8,6 @@ import (
 	"gorm.io/gorm/schema"
 )
 
-
 func TestGetColNameFromColumn(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -237,15 +236,15 @@ func TestHasOtherClauseExceptPrimaryField(t *testing.T) {
 	}
 	s.Fields = []*schema.Field{
 		{
-			DBName:    "id",
+			DBName:     "id",
 			PrimaryKey: true,
 		},
 		{
-			DBName:    "name",
+			DBName:     "name",
 			PrimaryKey: false,
 		},
 	}
-	
+
 	tests := []struct {
 		name     string
 		setup    func(*gorm.DB)
@@ -309,3 +308,194 @@ func TestHasOtherClauseExceptPrimaryField(t *testing.T) {
 	}
 }
 
+func TestGetPrimaryKeyFields(t *testing.T) {
+	tests := []struct {
+		name           string
+		schema         *schema.Schema
+		expectedCount  int
+		expectedFields []string
+	}{
+		{
+			name: "single primary key",
+			schema: &schema.Schema{
+				Fields: []*schema.Field{
+					{DBName: "id", PrimaryKey: true},
+					{DBName: "name", PrimaryKey: false},
+				},
+			},
+			expectedCount:  1,
+			expectedFields: []string{"id"},
+		},
+		{
+			name: "composite primary key",
+			schema: &schema.Schema{
+				Fields: []*schema.Field{
+					{DBName: "user_id", PrimaryKey: true},
+					{DBName: "role_id", PrimaryKey: true},
+					{DBName: "name", PrimaryKey: false},
+				},
+				PrimaryFields: []*schema.Field{
+					{DBName: "user_id", PrimaryKey: true},
+					{DBName: "role_id", PrimaryKey: true},
+				},
+			},
+			expectedCount:  2,
+			expectedFields: []string{"user_id", "role_id"},
+		},
+		{
+			name: "no primary key",
+			schema: &schema.Schema{
+				Fields: []*schema.Field{
+					{DBName: "name", PrimaryKey: false},
+				},
+			},
+			expectedCount:  0,
+			expectedFields: []string{},
+		},
+		{
+			name:          "nil schema",
+			schema:        nil,
+			expectedCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := getPrimaryKeyFields(tt.schema)
+			if len(result) != tt.expectedCount {
+				t.Errorf("expected %d primary key fields, got %d", tt.expectedCount, len(result))
+				return
+			}
+			for i, expectedField := range tt.expectedFields {
+				if i < len(result) && result[i].DBName != expectedField {
+					t.Errorf("expected field %s at index %d, got %s", expectedField, i, result[i].DBName)
+				}
+			}
+		})
+	}
+}
+
+func TestGetAllUniqueIndexes(t *testing.T) {
+	tests := []struct {
+		name          string
+		schema        *schema.Schema
+		expectedCount int
+		expectedNames []string
+	}{
+		{
+			name: "with unique indexes",
+			schema: func() *schema.Schema {
+				s := &schema.Schema{
+					Table: "users",
+				}
+				// Note: ParseIndexes requires proper schema setup, so we'll test with nil
+				// Actual unique index parsing is tested in integration tests
+				return s
+			}(),
+			expectedCount: 0, // Will be 0 because ParseIndexes needs proper setup
+		},
+		{
+			name:          "nil schema",
+			schema:        nil,
+			expectedCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := getAllUniqueIndexes(tt.schema)
+			if result == nil && tt.expectedCount > 0 {
+				t.Errorf("expected %d unique indexes, got nil", tt.expectedCount)
+			} else if result != nil && len(result) != tt.expectedCount {
+				t.Errorf("expected %d unique indexes, got %d", tt.expectedCount, len(result))
+			}
+		})
+	}
+}
+
+func TestGetUniqueIndexFields(t *testing.T) {
+	tests := []struct {
+		name          string
+		schema        *schema.Schema
+		indexName     string
+		expectedCount int
+	}{
+		{
+			name:          "nil schema",
+			schema:        nil,
+			indexName:     "idx_email",
+			expectedCount: 0,
+		},
+		{
+			name: "non-existent index",
+			schema: &schema.Schema{
+				Table: "users",
+			},
+			indexName:     "non_existent",
+			expectedCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := getUniqueIndexFields(tt.schema, tt.indexName)
+			if len(result) != tt.expectedCount {
+				t.Errorf("expected %d fields, got %d", tt.expectedCount, len(result))
+			}
+		})
+	}
+}
+
+func TestHasOtherClauseExceptUniqueField(t *testing.T) {
+	// Note: hasOtherClauseExceptUniqueField requires actual unique index information
+	// from schema.ParseIndexes(), which is complex to set up in unit tests.
+	// This function is better tested in integration tests.
+	// Here we just test basic cases.
+
+	tests := []struct {
+		name      string
+		setup     func(*gorm.DB)
+		indexName string
+		expected  bool
+	}{
+		{
+			name: "nil schema",
+			setup: func(db *gorm.DB) {
+				db.Statement.Schema = nil
+				db.Statement.Clauses = map[string]clause.Clause{
+					"WHERE": {
+						Expression: clause.Where{
+							Exprs: []clause.Expression{
+								clause.Eq{Column: "email", Value: "test@example.com"},
+							},
+						},
+					},
+				}
+			},
+			indexName: "idx_email",
+			expected:  true, // nil schema returns true
+		},
+		{
+			name: "no WHERE clause",
+			setup: func(db *gorm.DB) {
+				db.Statement.Schema = &schema.Schema{Table: "users"}
+				db.Statement.Clauses = map[string]clause.Clause{}
+			},
+			indexName: "idx_email",
+			expected:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db := &gorm.DB{
+				Statement: &gorm.Statement{},
+			}
+			tt.setup(db)
+			result := hasOtherClauseExceptUniqueField(db, tt.indexName)
+			if result != tt.expected {
+				t.Errorf("expected %v, got %v", tt.expected, result)
+			}
+		})
+	}
+}

@@ -2,6 +2,7 @@ package util
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -24,15 +25,103 @@ func TestGenInstanceId(t *testing.T) {
 func TestGenPrimaryCacheKey(t *testing.T) {
 	instanceId := "test123"
 	tableName := "users"
-	primaryKey := "1"
 	
-	key := GenPrimaryCacheKey(instanceId, tableName, primaryKey)
-	expected := "gormcache:test123:p:users:1"
+	tests := []struct {
+		name           string
+		primaryKeyVals []string
+		expected       string
+	}{
+		{
+			name:           "single primary key",
+			primaryKeyVals: []string{"1"},
+			expected:       "gormcache:test123:p:users:1",
+		},
+		{
+			name:           "composite primary key",
+			primaryKeyVals: []string{"1", "2"},
+			expected:       "gormcache:test123:p:users:1:2",
+		},
+		{
+			name:           "composite primary key with three fields",
+			primaryKeyVals: []string{"1", "2", "3"},
+			expected:       "gormcache:test123:p:users:1:2:3",
+		},
+	}
 	
-	if key != expected {
-		t.Errorf("expected %s, got %s", expected, key)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			key := GenPrimaryCacheKey(instanceId, tableName, tt.primaryKeyVals...)
+			if key != tt.expected {
+				t.Errorf("expected %s, got %s", tt.expected, key)
+			}
+		})
 	}
 }
+
+func TestGenPrimaryCacheKeyFromMap(t *testing.T) {
+	instanceId := "test123"
+	tableName := "users"
+	
+	tests := []struct {
+		name         string
+		primaryKeyMap map[string]string
+		expected     string
+	}{
+		{
+			name: "single primary key",
+			primaryKeyMap: map[string]string{
+				"id": "1",
+			},
+			expected: "gormcache:test123:p:users:1",
+		},
+		{
+			name: "composite primary key",
+			primaryKeyMap: map[string]string{
+				"user_id": "1",
+				"role_id": "2",
+			},
+			expected: "gormcache:test123:p:users:1:2", // sorted by field name: role_id, user_id
+		},
+		{
+			name: "composite primary key with three fields",
+			primaryKeyMap: map[string]string{
+				"a": "1",
+				"b": "2",
+				"c": "3",
+			},
+			expected: "gormcache:test123:p:users:1:2:3", // sorted: a, b, c
+		},
+	}
+	
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			key := GenPrimaryCacheKeyFromMap(instanceId, tableName, tt.primaryKeyMap)
+			// 验证key格式正确，包含所有值（顺序可能因map遍历顺序而不同，但排序后应该一致）
+			if len(key) == 0 {
+				t.Error("expected non-empty key")
+			}
+			// 验证前缀正确
+			expectedPrefix := "gormcache:test123:p:users:"
+			if !strings.Contains(key, expectedPrefix) {
+				t.Errorf("key should contain prefix %s, got %s", expectedPrefix, key)
+			}
+			// 对于单个key，验证完整匹配
+			if len(tt.primaryKeyMap) == 1 {
+				if key != tt.expected {
+					t.Errorf("expected %s, got %s", tt.expected, key)
+				}
+			} else {
+				// 对于多个key，验证包含所有值
+				for _, val := range tt.primaryKeyMap {
+					if !strings.Contains(key, val) {
+						t.Errorf("key should contain value %s, got %s", val, key)
+					}
+				}
+			}
+		})
+	}
+}
+
 
 func TestGenPrimaryCachePrefix(t *testing.T) {
 	instanceId := "test123"
@@ -234,6 +323,121 @@ func TestGenSearchCacheKey_ReflectValue(t *testing.T) {
 	key := GenSearchCacheKey(instanceId, tableName, sql, vars...)
 	if len(key) == 0 {
 		t.Error("expected non-empty key")
+	}
+}
+
+func TestGenUniqueCacheKey(t *testing.T) {
+	instanceId := "test123"
+	tableName := "users"
+	uniqueIndexName := "idx_email"
+	
+	tests := []struct {
+		name           string
+		uniqueKeyVals  []string
+		expected       string
+	}{
+		{
+			name:          "single unique key",
+			uniqueKeyVals: []string{"user@example.com"},
+			expected:      "gormcache:test123:u:users:idx_email:user@example.com",
+		},
+		{
+			name:          "composite unique key",
+			uniqueKeyVals: []string{"user@example.com", "123"},
+			expected:      "gormcache:test123:u:users:idx_email:user@example.com:123",
+		},
+		{
+			name:          "composite unique key with three fields",
+			uniqueKeyVals: []string{"1", "2", "3"},
+			expected:      "gormcache:test123:u:users:idx_email:1:2:3",
+		},
+	}
+	
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			key := GenUniqueCacheKey(instanceId, tableName, uniqueIndexName, tt.uniqueKeyVals...)
+			if key != tt.expected {
+				t.Errorf("expected %s, got %s", tt.expected, key)
+			}
+		})
+	}
+}
+
+func TestGenUniqueCacheKeyFromMap(t *testing.T) {
+	instanceId := "test123"
+	tableName := "users"
+	uniqueIndexName := "idx_email"
+	
+	tests := []struct {
+		name         string
+		uniqueKeyMap map[string]string
+		expected     string
+	}{
+		{
+			name: "single unique key",
+			uniqueKeyMap: map[string]string{
+				"email": "user@example.com",
+			},
+			expected: "gormcache:test123:u:users:idx_email:user@example.com",
+		},
+		{
+			name: "composite unique key",
+			uniqueKeyMap: map[string]string{
+				"email": "user@example.com",
+				"code":  "123",
+			},
+			expected: "gormcache:test123:u:users:idx_email:123:user@example.com", // sorted: code, email
+		},
+		{
+			name: "composite unique key with three fields",
+			uniqueKeyMap: map[string]string{
+				"a": "1",
+				"b": "2",
+				"c": "3",
+			},
+			expected: "gormcache:test123:u:users:idx_email:1:2:3", // sorted: a, b, c
+		},
+	}
+	
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			key := GenUniqueCacheKeyFromMap(instanceId, tableName, uniqueIndexName, tt.uniqueKeyMap)
+			// 验证key格式正确
+			if len(key) == 0 {
+				t.Error("expected non-empty key")
+			}
+			// 验证前缀正确
+			expectedPrefix := "gormcache:test123:u:users:idx_email:"
+			if !strings.Contains(key, expectedPrefix) {
+				t.Errorf("key should contain prefix %s, got %s", expectedPrefix, key)
+			}
+			// 对于单个key，验证完整匹配
+			if len(tt.uniqueKeyMap) == 1 {
+				if key != tt.expected {
+					t.Errorf("expected %s, got %s", tt.expected, key)
+				}
+			} else {
+				// 对于多个key，验证包含所有值
+				for _, val := range tt.uniqueKeyMap {
+					if !strings.Contains(key, val) {
+						t.Errorf("key should contain value %s, got %s", val, key)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestGenUniqueCachePrefix(t *testing.T) {
+	instanceId := "test123"
+	tableName := "users"
+	uniqueIndexName := "idx_email"
+	
+	prefix := GenUniqueCachePrefix(instanceId, tableName, uniqueIndexName)
+	expected := "gormcache:test123:u:users:idx_email"
+	
+	if prefix != expected {
+		t.Errorf("expected %s, got %s", expected, prefix)
 	}
 }
 

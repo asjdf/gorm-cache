@@ -117,12 +117,14 @@ func (c *Gorm2Cache) InvalidateSearchCache(ctx context.Context, tableName string
 }
 
 func (c *Gorm2Cache) InvalidatePrimaryCache(ctx context.Context, tableName string, primaryKey string) error {
+	// primaryKey 已经是最终格式（单个值或已用":"连接的联合主键），直接传入
 	return c.cache.DeleteKey(ctx, util.GenPrimaryCacheKey(c.InstanceId, tableName, primaryKey))
 }
 
 func (c *Gorm2Cache) BatchInvalidatePrimaryCache(ctx context.Context, tableName string, primaryKeys []string) error {
 	cacheKeys := make([]string, 0, len(primaryKeys))
 	for _, primaryKey := range primaryKeys {
+		// primaryKey 已经是最终格式（单个值或已用":"连接的联合主键），直接传入
 		cacheKeys = append(cacheKeys, util.GenPrimaryCacheKey(c.InstanceId, tableName, primaryKey))
 	}
 	return c.cache.BatchDeleteKeys(ctx, cacheKeys)
@@ -135,6 +137,7 @@ func (c *Gorm2Cache) InvalidateAllPrimaryCache(ctx context.Context, tableName st
 func (c *Gorm2Cache) BatchPrimaryKeyExists(ctx context.Context, tableName string, primaryKeys []string) (bool, error) {
 	cacheKeys := make([]string, 0, len(primaryKeys))
 	for _, primaryKey := range primaryKeys {
+		// primaryKey 已经是最终格式（单个值或已用":"连接的联合主键），直接传入
 		cacheKeys = append(cacheKeys, util.GenPrimaryCacheKey(c.InstanceId, tableName, primaryKey))
 	}
 	return c.cache.BatchKeyExist(ctx, cacheKeys)
@@ -147,6 +150,7 @@ func (c *Gorm2Cache) SearchKeyExists(ctx context.Context, tableName string, SQL 
 
 func (c *Gorm2Cache) BatchSetPrimaryKeyCache(ctx context.Context, tableName string, kvs []util.Kv) error {
 	for idx, kv := range kvs {
+		// kv.Key 已经是最终格式（单个值或已用":"连接的联合主键），直接传入
 		kvs[idx].Key = util.GenPrimaryCacheKey(c.InstanceId, tableName, kv.Key)
 	}
 	return c.cache.BatchSetKeys(ctx, kvs)
@@ -169,7 +173,48 @@ func (c *Gorm2Cache) GetSearchCache(ctx context.Context, tableName string, sql s
 func (c *Gorm2Cache) BatchGetPrimaryCache(ctx context.Context, tableName string, primaryKeys []string) ([]string, error) {
 	cacheKeys := make([]string, 0, len(primaryKeys))
 	for _, primaryKey := range primaryKeys {
+		// primaryKey 已经是最终格式（单个值或已用":"连接的联合主键），直接传入
 		cacheKeys = append(cacheKeys, util.GenPrimaryCacheKey(c.InstanceId, tableName, primaryKey))
 	}
 	return c.cache.BatchGetValues(ctx, cacheKeys)
+}
+
+// BatchGetUniqueCache 批量获取unique键缓存
+func (c *Gorm2Cache) BatchGetUniqueCache(ctx context.Context, tableName string, uniqueIndexName string, uniqueKeys []string) ([]string, error) {
+	cacheKeys := make([]string, 0, len(uniqueKeys))
+	for _, uniqueKey := range uniqueKeys {
+		// uniqueKey 已经是最终格式（单个值或已用":"连接的联合unique键），直接传入
+		cacheKeys = append(cacheKeys, util.GenUniqueCacheKey(c.InstanceId, tableName, uniqueIndexName, uniqueKey))
+	}
+	return c.cache.BatchGetValues(ctx, cacheKeys)
+}
+
+// BatchSetUniqueCache 批量设置unique键缓存
+func (c *Gorm2Cache) BatchSetUniqueCache(ctx context.Context, tableName string, uniqueIndexName string, kvs []util.Kv) error {
+	for idx, kv := range kvs {
+		// kv.Key 已经是最终格式（单个值或已用":"连接的联合unique键），直接传入
+		kvs[idx].Key = util.GenUniqueCacheKey(c.InstanceId, tableName, uniqueIndexName, kv.Key)
+	}
+	return c.cache.BatchSetKeys(ctx, kvs)
+}
+
+// InvalidateUniqueCache 失效unique键缓存
+func (c *Gorm2Cache) InvalidateUniqueCache(ctx context.Context, tableName string, uniqueIndexName string, uniqueKey string) error {
+	// uniqueKey 已经是最终格式（单个值或已用":"连接的联合unique键），直接传入
+	return c.cache.DeleteKey(ctx, util.GenUniqueCacheKey(c.InstanceId, tableName, uniqueIndexName, uniqueKey))
+}
+
+// BatchInvalidateUniqueCache 批量失效unique键缓存
+func (c *Gorm2Cache) BatchInvalidateUniqueCache(ctx context.Context, tableName string, uniqueIndexName string, uniqueKeys []string) error {
+	cacheKeys := make([]string, 0, len(uniqueKeys))
+	for _, uniqueKey := range uniqueKeys {
+		// uniqueKey 已经是最终格式（单个值或已用":"连接的联合unique键），直接传入
+		cacheKeys = append(cacheKeys, util.GenUniqueCacheKey(c.InstanceId, tableName, uniqueIndexName, uniqueKey))
+	}
+	return c.cache.BatchDeleteKeys(ctx, cacheKeys)
+}
+
+// InvalidateAllUniqueCache 失效所有unique键缓存
+func (c *Gorm2Cache) InvalidateAllUniqueCache(ctx context.Context, tableName string, uniqueIndexName string) error {
+	return c.cache.DeleteKeysWithPrefix(ctx, util.GenUniqueCachePrefix(c.InstanceId, tableName, uniqueIndexName))
 }
