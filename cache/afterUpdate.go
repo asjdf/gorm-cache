@@ -53,6 +53,38 @@ func AfterUpdate(cache *Gorm2Cache) func(db *gorm.DB) {
 						}
 						cache.Logger.CtxInfo(ctx, "[AfterUpdate] invalidating all primary cache for table: %s finished.", tableName)
 					}
+
+					// 失效unique键缓存
+					// 尝试从WHERE子句中提取unique键
+					uniqueKeysMap := getUniqueKeysFromWhereClause(db)
+					if len(uniqueKeysMap) > 0 {
+						for indexName, uniqueKeys := range uniqueKeysMap {
+							if len(uniqueKeys) > 0 {
+								cache.Logger.CtxInfo(ctx, "[AfterUpdate] now start to invalidate unique cache for index %s keys: %+v", indexName, uniqueKeys)
+								err := cache.BatchInvalidateUniqueCache(ctx, tableName, indexName, uniqueKeys)
+								if err != nil {
+									cache.Logger.CtxError(ctx, "[AfterUpdate] invalidating unique cache for index %s keys %v error: %v",
+										indexName, uniqueKeys, err)
+								} else {
+									cache.Logger.CtxInfo(ctx, "[AfterUpdate] invalidating unique cache for index %s keys: %+v finished.", indexName, uniqueKeys)
+								}
+							}
+						}
+					} else {
+						// 如果没有从WHERE子句提取到unique键，失效所有unique键缓存
+						if db.Statement.Schema != nil {
+							allUniqueIndexes := getAllUniqueIndexes(db.Statement.Schema)
+							for indexName := range allUniqueIndexes {
+								cache.Logger.CtxInfo(ctx, "[AfterUpdate] now start to invalidate all unique cache for index %s", indexName)
+								err := cache.InvalidateAllUniqueCache(ctx, tableName, indexName)
+								if err != nil {
+									cache.Logger.CtxError(ctx, "[AfterUpdate] invalidating all unique cache for index %s error: %v", indexName, err)
+								} else {
+									cache.Logger.CtxInfo(ctx, "[AfterUpdate] invalidating all unique cache for index %s finished.", indexName)
+								}
+							}
+						}
+					}
 				}
 			}()
 

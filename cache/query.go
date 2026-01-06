@@ -155,6 +155,60 @@ func (h *queryHandler) BeforeQuery() func(db *gorm.DB) {
 				return
 			}
 
+			tryUniqueCache := func() (hit bool) {
+				uniqueKeysMap := getUniqueKeysFromWhereClause(db)
+				if len(uniqueKeysMap) == 0 {
+					return
+				}
+
+				// 尝试每个unique索引
+				for uniqueIndexName, uniqueKeys := range uniqueKeysMap {
+					cache.Logger.CtxInfo(ctx, "[BeforeQuery] parse unique keys for index %s = %v", uniqueIndexName, uniqueKeys)
+
+					if len(uniqueKeys) == 0 {
+						continue
+					}
+
+					// 检查是否有其他条件
+					hasOtherClauseInWhere := hasOtherClauseExceptUniqueField(db, uniqueIndexName)
+					if hasOtherClauseInWhere {
+						continue
+					}
+
+					// unique cache hit
+					cacheValues, err := cache.BatchGetUniqueCache(ctx, tableName, uniqueIndexName, uniqueKeys)
+					if err != nil {
+						cache.Logger.CtxError(ctx, "[BeforeQuery] get unique cache value for index %s key %v error: %v", uniqueIndexName, uniqueKeys, err)
+						continue
+					}
+					if len(cacheValues) != len(uniqueKeys) {
+						continue
+					}
+					finalValue := ""
+
+					destKind := reflect.Indirect(reflect.ValueOf(db.Statement.Dest)).Kind()
+					if destKind == reflect.Struct && len(cacheValues) == 1 {
+						finalValue = cacheValues[0]
+					} else if (destKind == reflect.Array || destKind == reflect.Slice) && len(cacheValues) >= 1 {
+						finalValue = "[" + strings.Join(cacheValues, ",") + "]"
+					}
+					if len(finalValue) == 0 {
+						cache.Logger.CtxError(ctx, "[BeforeQuery] length of unique cache values and dest not matched")
+						continue
+					}
+
+					err = json.Unmarshal([]byte(finalValue), db.Statement.Dest)
+					if err != nil {
+						cache.Logger.CtxError(ctx, "[BeforeQuery] unmarshal unique cache final value error: %v", err)
+						continue
+					}
+					db.Error = util.PrimaryCacheHit // 复用PrimaryCacheHit，因为逻辑相同
+					hit = true
+					return
+				}
+				return
+			}
+
 			trySearchCache := func() (hit bool) {
 				// search cache hit
 				cacheValue, err := cache.GetSearchCache(ctx, tableName, sql, db.Statement.Vars...)
@@ -201,6 +255,11 @@ func (h *queryHandler) BeforeQuery() func(db *gorm.DB) {
 
 			if cache.Config.CacheLevel == config.CacheLevelAll || cache.Config.CacheLevel == config.CacheLevelOnlyPrimary {
 				if tryPrimaryCache() {
+					hit = true
+					return
+				}
+				// 尝试unique键缓存
+				if tryUniqueCache() {
 					hit = true
 					return
 				}
@@ -321,6 +380,34 @@ func (h *queryHandler) AfterQuery() func(db *gorm.DB) {
 						if err != nil {
 							cache.Logger.CtxError(ctx, "[AfterQuery] batch set primary key cache for key %v error: %v",
 								primaryKeys, err)
+						}
+
+						// cache unique cache data
+						uniqueKeysMap := getUniqueKeysFromObjects(db, objects)
+						if len(uniqueKeysMap) > 0 {
+							for indexName, objKeysMap := range uniqueKeysMap {
+								uniqueKvs := make([]util.Kv, 0, len(objKeysMap))
+								for objIdx, uniqueKey := range objKeysMap {
+									if objIdx < len(objects) {
+										jsonStr, err := json.Marshal(objects[objIdx])
+										if err != nil {
+											cache.Logger.CtxError(ctx, "[AfterQuery] object %v cannot marshal for unique cache, not cached", objects[objIdx])
+											continue
+										}
+										uniqueKvs = append(uniqueKvs, util.Kv{
+											Key:   uniqueKey,
+											Value: string(jsonStr),
+										})
+									}
+								}
+								if len(uniqueKvs) > 0 {
+									cache.Logger.CtxInfo(ctx, "[AfterQuery] start to set unique cache for index %s kvs: %+v", indexName, uniqueKvs)
+									err := cache.BatchSetUniqueCache(ctx, tableName, indexName, uniqueKvs)
+									if err != nil {
+										cache.Logger.CtxError(ctx, "[AfterQuery] batch set unique cache for index %s error: %v", indexName, err)
+									}
+								}
+							}
 						}
 					}
 				}()
