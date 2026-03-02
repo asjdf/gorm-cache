@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"sync"
 	"testing"
 
 	"gorm.io/gorm"
@@ -418,6 +419,13 @@ func TestGetPrimaryKeysFromWhereClause_CompositeKeyCartesianProduct(t *testing.T
 	}
 }
 
+// userWithUniqueIndexes is a model with unique indexes for testing getAllUniqueIndexes.
+type userWithUniqueIndexes struct {
+	ID       uint   `gorm:"primaryKey"`
+	Email    string `gorm:"uniqueIndex:idx_email"`
+	Username string `gorm:"uniqueIndex:idx_username"`
+}
+
 func TestGetAllUniqueIndexes(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -426,21 +434,19 @@ func TestGetAllUniqueIndexes(t *testing.T) {
 		expectedNames []string
 	}{
 		{
-			name: "with unique indexes",
+			name: "with unique indexes from parsed schema",
 			schema: func() *schema.Schema {
-				s := &schema.Schema{
-					Table: "users",
-				}
-				// Note: ParseIndexes requires proper schema setup, so we'll test with nil
-				// Actual unique index parsing is tested in integration tests
+				s, _ := schema.Parse(&userWithUniqueIndexes{}, &sync.Map{}, schema.NamingStrategy{})
 				return s
 			}(),
-			expectedCount: 0, // Will be 0 because ParseIndexes needs proper setup
+			expectedCount: 2,
+			expectedNames: []string{"idx_email", "idx_username"},
 		},
 		{
 			name:          "nil schema",
 			schema:        nil,
 			expectedCount: 0,
+			expectedNames: nil,
 		},
 	}
 
@@ -449,8 +455,15 @@ func TestGetAllUniqueIndexes(t *testing.T) {
 			result := getAllUniqueIndexes(tt.schema)
 			if result == nil && tt.expectedCount > 0 {
 				t.Errorf("expected %d unique indexes, got nil", tt.expectedCount)
-			} else if result != nil && len(result) != tt.expectedCount {
+				return
+			}
+			if result != nil && len(result) != tt.expectedCount {
 				t.Errorf("expected %d unique indexes, got %d", tt.expectedCount, len(result))
+			}
+			for _, wantName := range tt.expectedNames {
+				if _, ok := result[wantName]; !ok {
+					t.Errorf("expected unique index %q in result %v", wantName, result)
+				}
 			}
 		})
 	}
@@ -535,7 +548,7 @@ func TestHasOtherClauseExceptUniqueField(t *testing.T) {
 				Statement: &gorm.Statement{},
 			}
 			tt.setup(db)
-			result := hasOtherClauseExceptUniqueField(db, tt.indexName)
+			result := hasOtherClauseExceptUniqueField(db, tt.indexName, nil)
 			if result != tt.expected {
 				t.Errorf("expected %v, got %v", tt.expected, result)
 			}

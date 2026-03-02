@@ -54,7 +54,7 @@ func AfterDelete(cache *Gorm2Cache) func(db *gorm.DB) {
 
 					// 失效unique键缓存
 					// 尝试从WHERE子句中提取unique键
-					uniqueKeysMap := getUniqueKeysFromWhereClause(db)
+					uniqueKeysMap, _ := getUniqueKeysFromWhereClause(db)
 					if len(uniqueKeysMap) > 0 {
 						for indexName, uniqueKeys := range uniqueKeysMap {
 							if len(uniqueKeys) > 0 {
