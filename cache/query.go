@@ -174,7 +174,7 @@ func (h *queryHandler) BeforeQuery() func(db *gorm.DB) {
 			}
 
 			tryUniqueCache := func() (hit bool) {
-				uniqueKeysMap := getUniqueKeysFromWhereClause(db)
+				uniqueKeysMap, uniqueIndexesMap := getUniqueKeysFromWhereClause(db)
 				if len(uniqueKeysMap) == 0 {
 					return
 				}
@@ -187,8 +187,8 @@ func (h *queryHandler) BeforeQuery() func(db *gorm.DB) {
 						continue
 					}
 
-					// 检查是否有其他条件
-					hasOtherClauseInWhere := hasOtherClauseExceptUniqueField(db, uniqueIndexName)
+					// 检查是否有其他条件（传入 index 避免重复 ParseIndexes）
+					hasOtherClauseInWhere := hasOtherClauseExceptUniqueField(db, uniqueIndexName, uniqueIndexesMap[uniqueIndexName])
 					if hasOtherClauseInWhere {
 						continue
 					}

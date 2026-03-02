@@ -61,6 +61,7 @@ var (
 	mysqlDSN         string
 	setupMySQLOnce   sync.Once
 	cleanupMySQLOnce sync.Once
+	mysqlSetupErr    error
 
 	pgPool        *dockertest.Pool
 	pgResource    *dockertest.Resource
@@ -68,6 +69,7 @@ var (
 	pgDSN         string
 	setupPGOnce   sync.Once
 	cleanupPGOnce sync.Once
+	pgSetupErr    error
 )
 
 func setupMySQL(t *testing.T) *gorm.DB {
@@ -75,7 +77,8 @@ func setupMySQL(t *testing.T) *gorm.DB {
 		var err error
 		mysqlPool, err = dockertest.NewPool("")
 		if err != nil {
-			t.Fatalf("Could not connect to docker: %s", err)
+			mysqlSetupErr = fmt.Errorf("could not connect to docker: %w", err)
+			return
 		}
 
 		mysqlResource, err = mysqlPool.RunWithOptions(&dockertest.RunOptions{
@@ -93,35 +96,41 @@ func setupMySQL(t *testing.T) *gorm.DB {
 			config.RestartPolicy = docker.RestartPolicy{Name: "no"}
 		})
 		if err != nil {
-			t.Fatalf("Could not start MySQL resource: %s", err)
+			mysqlSetupErr = fmt.Errorf("could not start MySQL resource: %w", err)
+			return
 		}
 
 		host := mysqlResource.GetHostPort("3306/tcp")
 		mysqlDSN = fmt.Sprintf("root:testpass@tcp(%s)/testdb?charset=utf8mb4&parseTime=True&loc=Local", host)
 
-		// Wait for MySQL to be ready
 		mysqlPool.MaxWait = 120 * time.Second
 		if err := mysqlPool.Retry(func() error {
-			var err error
-			mysqlDB, err = gorm.Open(mysql.Open(mysqlDSN), &gorm.Config{
+			var openErr error
+			mysqlDB, openErr = gorm.Open(mysql.Open(mysqlDSN), &gorm.Config{
 				Logger: logger.Default.LogMode(logger.Silent),
 			})
-			if err != nil {
-				return err
+			if openErr != nil {
+				return openErr
 			}
-			sqlDB, err := mysqlDB.DB()
-			if err != nil {
-				return err
+			sqlDB, openErr := mysqlDB.DB()
+			if openErr != nil {
+				return openErr
 			}
-			// 设置连接池参数
 			sqlDB.SetMaxOpenConns(10)
 			sqlDB.SetMaxIdleConns(5)
 			sqlDB.SetConnMaxLifetime(time.Hour)
 			return sqlDB.Ping()
 		}); err != nil {
-			t.Fatalf("Could not connect to MySQL: %s", err)
+			mysqlSetupErr = fmt.Errorf("could not connect to MySQL: %w", err)
+			return
 		}
 	})
+	if mysqlSetupErr != nil {
+		t.Fatalf("MySQL setup failed: %v", mysqlSetupErr)
+	}
+	if mysqlDB == nil {
+		t.Fatal("MySQL DB is nil after setup")
+	}
 
 	// Clean tables before each test
 	mysqlDB.Exec("DROP TABLE IF EXISTS user_roles, users, user_sessions")
@@ -140,7 +149,8 @@ func setupPostgreSQL(t *testing.T) *gorm.DB {
 		var err error
 		pgPool, err = dockertest.NewPool("")
 		if err != nil {
-			t.Fatalf("Could not connect to docker: %s", err)
+			pgSetupErr = fmt.Errorf("could not connect to docker: %w", err)
+			return
 		}
 
 		pgResource, err = pgPool.RunWithOptions(&dockertest.RunOptions{
@@ -158,44 +168,49 @@ func setupPostgreSQL(t *testing.T) *gorm.DB {
 			config.RestartPolicy = docker.RestartPolicy{Name: "no"}
 		})
 		if err != nil {
-			t.Fatalf("Could not start PostgreSQL resource: %s", err)
+			pgSetupErr = fmt.Errorf("could not start PostgreSQL resource: %w", err)
+			return
 		}
 
 		hostPort := pgResource.GetHostPort("5432/tcp")
-		// hostPort 格式是 "host:port"，需要解析出端口
 		host, port, err := net.SplitHostPort(hostPort)
 		if err != nil {
-			t.Fatalf("Could not parse host:port: %s", err)
+			pgSetupErr = fmt.Errorf("could not parse host:port: %w", err)
+			return
 		}
-		// 如果 host 是 IPv6 地址，需要用方括号
 		if strings.Contains(host, ":") && !strings.HasPrefix(host, "[") {
 			host = "[" + host + "]"
 		}
 		pgDSN = fmt.Sprintf("host=%s port=%s user=postgres password=testpass dbname=testdb sslmode=disable", host, port)
 
-		// Wait for PostgreSQL to be ready
 		pgPool.MaxWait = 120 * time.Second
 		if err := pgPool.Retry(func() error {
-			var err error
-			pgDB, err = gorm.Open(postgres.Open(pgDSN), &gorm.Config{
+			var openErr error
+			pgDB, openErr = gorm.Open(postgres.Open(pgDSN), &gorm.Config{
 				Logger: logger.Default.LogMode(logger.Silent),
 			})
-			if err != nil {
-				return err
+			if openErr != nil {
+				return openErr
 			}
-			sqlDB, err := pgDB.DB()
-			if err != nil {
-				return err
+			sqlDB, openErr := pgDB.DB()
+			if openErr != nil {
+				return openErr
 			}
-			// 设置连接池参数
 			sqlDB.SetMaxOpenConns(10)
 			sqlDB.SetMaxIdleConns(5)
 			sqlDB.SetConnMaxLifetime(time.Hour)
 			return sqlDB.Ping()
 		}); err != nil {
-			t.Fatalf("Could not connect to PostgreSQL: %s", err)
+			pgSetupErr = fmt.Errorf("could not connect to PostgreSQL: %w", err)
+			return
 		}
 	})
+	if pgSetupErr != nil {
+		t.Fatalf("PostgreSQL setup failed: %v", pgSetupErr)
+	}
+	if pgDB == nil {
+		t.Fatal("PostgreSQL DB is nil after setup")
+	}
 
 	// Clean tables before each test
 	pgDB.Exec("DROP TABLE IF EXISTS user_roles, users, user_sessions CASCADE")
@@ -240,6 +255,19 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+// waitForCondition 在 timeout 内按 interval 轮询 predicate，为真则返回 nil，超时返回 error。
+// 用于替代固定 time.Sleep，避免 CI 上因负载导致的偶发失败。
+func waitForCondition(interval, timeout time.Duration, predicate func() bool) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if predicate() {
+			return nil
+		}
+		time.Sleep(interval)
+	}
+	return fmt.Errorf("condition not met within %v", timeout)
+}
+
 // 辅助函数：创建标准缓存配置
 func createTestCache(tables []string) (Cache, error) {
 	return NewGorm2Cache(&config.CacheConfig{
@@ -250,6 +278,31 @@ func createTestCache(tables []string) (Cache, error) {
 		CacheMaxItemCnt:      100,
 		DebugMode:            false,
 		Tables:               tables,
+	})
+}
+
+func TestWaitForCondition(t *testing.T) {
+	t.Run("succeeds when predicate true immediately", func(t *testing.T) {
+		err := waitForCondition(5*time.Millisecond, 50*time.Millisecond, func() bool { return true })
+		if err != nil {
+			t.Errorf("expected nil, got %v", err)
+		}
+	})
+	t.Run("succeeds when predicate becomes true", func(t *testing.T) {
+		n := 0
+		err := waitForCondition(5*time.Millisecond, 100*time.Millisecond, func() bool {
+			n++
+			return n >= 3
+		})
+		if err != nil {
+			t.Errorf("expected nil after 3 polls, got %v", err)
+		}
+	})
+	t.Run("returns error when timeout", func(t *testing.T) {
+		err := waitForCondition(5*time.Millisecond, 20*time.Millisecond, func() bool { return false })
+		if err == nil {
+			t.Error("expected error on timeout")
+		}
 	})
 }
 
@@ -625,7 +678,15 @@ func TestCacheConsistency_Comprehensive_MySQL(t *testing.T) {
 			t.Fatalf("Failed to update: %v", err)
 		}
 
-		time.Sleep(100 * time.Millisecond)
+		if err := waitForCondition(15*time.Millisecond, 2*time.Second, func() bool {
+			var r UserRole
+			if db.Where("user_id = ? AND role_id = ?", 100, 200).First(&r).Error != nil {
+				return false
+			}
+			return r.Name == "Updated"
+		}); err != nil {
+			t.Fatalf("cache did not reflect update: %v", err)
+		}
 
 		// 验证一致性
 		var result UserRole
@@ -663,7 +724,15 @@ func TestCacheConsistency_Comprehensive_MySQL(t *testing.T) {
 			t.Fatalf("Failed to update: %v", err)
 		}
 
-		time.Sleep(100 * time.Millisecond)
+		if err := waitForCondition(15*time.Millisecond, 2*time.Second, func() bool {
+			var r User
+			if db.Where("email = ?", "unique@test.com").First(&r).Error != nil {
+				return false
+			}
+			return r.Name == "Updated"
+		}); err != nil {
+			t.Fatalf("cache did not reflect update: %v", err)
+		}
 
 		// 验证
 		var result User
@@ -690,7 +759,13 @@ func TestCacheConsistency_Comprehensive_MySQL(t *testing.T) {
 			t.Fatalf("Failed to delete: %v", err)
 		}
 
-		time.Sleep(100 * time.Millisecond)
+		if err := waitForCondition(15*time.Millisecond, 2*time.Second, func() bool {
+			var r UserRole
+			err := db.Where("user_id = ? AND role_id = ?", 200, 300).First(&r).Error
+			return err != nil && err == gorm.ErrRecordNotFound
+		}); err != nil {
+			t.Fatalf("cache did not reflect delete: %v", err)
+		}
 
 		// 验证已删除
 		var result UserRole
@@ -794,7 +869,20 @@ func TestCacheConsistency_Advanced_MySQL(t *testing.T) {
 			<-done
 		}
 
-		time.Sleep(200 * time.Millisecond)
+		if err := waitForCondition(20*time.Millisecond, 3*time.Second, func() bool {
+			var r UserRole
+			if db.Where("user_id = ? AND role_id = ?", 1000, 2000).First(&r).Error != nil {
+				return false
+			}
+			sqlDB, _ := db.DB()
+			var dbName string
+			if sqlDB.QueryRow("SELECT name FROM user_roles WHERE user_id = ? AND role_id = ?", 1000, 2000).Scan(&dbName) != nil {
+				return false
+			}
+			return r.Name == dbName
+		}); err != nil {
+			t.Fatalf("cache consistency after concurrent updates: %v", err)
+		}
 
 		var result UserRole
 		if err := db.Where("user_id = ? AND role_id = ?", 1000, 2000).First(&result).Error; err != nil {
@@ -825,7 +913,12 @@ func TestCacheConsistency_Advanced_MySQL(t *testing.T) {
 			t.Fatalf("Failed to delete: %v", err)
 		}
 
-		time.Sleep(100 * time.Millisecond)
+		if err := waitForCondition(15*time.Millisecond, 2*time.Second, func() bool {
+			var r UserRole
+			return db.Where("user_id = ? AND role_id = ?", 2000, 3000).First(&r).Error == gorm.ErrRecordNotFound
+		}); err != nil {
+			t.Fatalf("cache did not reflect delete: %v", err)
+		}
 
 		var result2 UserRole
 		if err := db.Where("user_id = ? AND role_id = ?", 2000, 3000).First(&result2).Error; err == nil {
@@ -837,7 +930,15 @@ func TestCacheConsistency_Advanced_MySQL(t *testing.T) {
 			t.Fatalf("Failed to recreate: %v", err)
 		}
 
-		time.Sleep(100 * time.Millisecond)
+		if err := waitForCondition(15*time.Millisecond, 2*time.Second, func() bool {
+			var r UserRole
+			if db.Where("user_id = ? AND role_id = ?", 2000, 3000).First(&r).Error != nil {
+				return false
+			}
+			return r.Name == "Second"
+		}); err != nil {
+			t.Fatalf("cache did not reflect recreate: %v", err)
+		}
 
 		var result3 UserRole
 		if err := db.Where("user_id = ? AND role_id = ?", 2000, 3000).First(&result3).Error; err != nil {

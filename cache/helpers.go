@@ -218,23 +218,23 @@ func getAllUniqueIndexes(s *schema.Schema) map[string]*schema.Index {
 }
 
 // getUniqueKeysFromWhereClause 从WHERE子句中提取unique键值
-// 返回: map[uniqueIndexName][]string，每个unique索引对应一个key列表
-func getUniqueKeysFromWhereClause(db *gorm.DB) map[string][]string {
+// 返回: keys map[uniqueIndexName][]string，indexes map[uniqueIndexName]*schema.Index（仅 ParseIndexes 一次，供调用方复用）
+func getUniqueKeysFromWhereClause(db *gorm.DB) (map[string][]string, map[string]*schema.Index) {
 	cla, ok := db.Statement.Clauses["WHERE"]
 	if !ok {
-		return nil
+		return nil, nil
 	}
 	where, ok := cla.Expression.(clause.Where)
 	if !ok {
-		return nil
+		return nil, nil
 	}
 	if db.Statement.Schema == nil {
-		return nil
+		return nil, nil
 	}
 
 	uniqueIndexes := getAllUniqueIndexes(db.Statement.Schema)
 	if len(uniqueIndexes) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	// 收集WHERE子句中的字段值
@@ -321,13 +321,14 @@ func getUniqueKeysFromWhereClause(db *gorm.DB) map[string][]string {
 	}
 
 	if len(result) == 0 {
-		return nil
+		return nil, nil
 	}
-	return result
+	return result, uniqueIndexes
 }
 
-// hasOtherClauseExceptUniqueField 检查WHERE子句中是否有除了指定unique索引字段之外的其他条件
-func hasOtherClauseExceptUniqueField(db *gorm.DB, uniqueIndexName string) bool {
+// hasOtherClauseExceptUniqueField 检查WHERE子句中是否有除了指定unique索引字段之外的其他条件。
+// 若 uniqueIndex 非 nil 则直接使用其 Fields，避免重复 ParseIndexes。
+func hasOtherClauseExceptUniqueField(db *gorm.DB, uniqueIndexName string, uniqueIndex *schema.Index) bool {
 	cla, ok := db.Statement.Clauses["WHERE"]
 	if !ok {
 		return false
@@ -340,7 +341,16 @@ func hasOtherClauseExceptUniqueField(db *gorm.DB, uniqueIndexName string) bool {
 		return true
 	}
 
-	uniqueFields := getUniqueIndexFields(db.Statement.Schema, uniqueIndexName)
+	var uniqueFields []*schema.Field
+	if uniqueIndex != nil {
+		for _, fo := range uniqueIndex.Fields {
+			if fo.Field != nil {
+				uniqueFields = append(uniqueFields, fo.Field)
+			}
+		}
+	} else {
+		uniqueFields = getUniqueIndexFields(db.Statement.Schema, uniqueIndexName)
+	}
 	if len(uniqueFields) == 0 {
 		return true
 	}
