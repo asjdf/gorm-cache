@@ -1,7 +1,11 @@
 package cache
 
 import (
+	"context"
+	"errors"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/asjdf/gorm-cache/config"
 	"github.com/asjdf/gorm-cache/storage"
@@ -445,6 +449,69 @@ func TestAfterQuery_WithSingleFlight(t *testing.T) {
 	<-done
 	<-done
 	// Singleflight should prevent duplicate queries
+}
+
+// TestSingleFlight_ContextCancel_DoesNotAffectWaiters 复现并防护「一人取消，全家报错」：
+// leader 使用已取消的 context 抢到执行权时，查库/缓存应用独立 background context，
+// 否则 leader 的 cancel 会连累所有等待同一 key 的请求拿到 context.Canceled。
+func TestSingleFlight_ContextCancel_DoesNotAffectWaiters(t *testing.T) {
+	db := setupTestDB(t)
+	memStorage := storage.NewMem(storage.DefaultMemStoreConfig)
+	cache := &Gorm2Cache{
+		Config: &config.CacheConfig{
+			CacheStorage: memStorage,
+			CacheTTL:     1000,
+			DebugMode:    false,
+			CacheLevel:   config.CacheLevelAll,
+			Tables:       []string{"test_users"},
+		},
+		stats: &stats{},
+	}
+	cache.Init()
+	cache.Initialize(db)
+
+	user := TestUser{Name: "User1", Age: 25}
+	if err := db.Create(&user).Error; err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	// 模拟「急性子」：leader 用极短超时 context 先抢到 singleflight，查库过程中其 ctx 已过期
+	singleFlightLeaderDelayForTest = 50 * time.Millisecond
+	defer func() { singleFlightLeaderDelayForTest = 0 }()
+
+	ctxLeader, cancelLeader := context.WithTimeout(context.Background(), 1*time.Millisecond)
+	defer cancelLeader()
+
+	var resultLeader, resultWaiter []TestUser
+	var errLeader, errWaiter error
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		tx := db.WithContext(ctxLeader)
+		errLeader = tx.Where("name = ?", "User1").Find(&resultLeader).Error
+	}()
+	time.Sleep(5 * time.Millisecond) // leader 已抢到锁并在 delay 中，waiter 将等待同一 call
+	go func() {
+		defer wg.Done()
+		tx := db.WithContext(context.Background())
+		errWaiter = tx.Where("name = ?", "User1").Find(&resultWaiter).Error
+	}()
+	wg.Wait()
+
+	// 正确行为：waiter 的 context 从未被取消/超时，不应拿到 leader 的 context 错误（一人取消/超时，全家报错）
+	if errWaiter == nil {
+		if len(resultWaiter) != 1 || resultWaiter[0].Name != "User1" {
+			t.Errorf("waiter should get one record: got %d, err=%v", len(resultWaiter), errWaiter)
+		}
+	} else {
+		if errors.Is(errWaiter, context.Canceled) || errors.Is(errWaiter, context.DeadlineExceeded) {
+			t.Errorf("一人取消全家报错：waiter 不应因 leader 的 context 取消/超时而得到相同错误, err=%v", errWaiter)
+		}
+	}
+	// leader 自己拿到 cancel 或超时是可以接受的，不强制断言
+	_ = errLeader
+	_ = resultLeader
 }
 
 func TestAfterQuery_WithAsyncWrite(t *testing.T) {
