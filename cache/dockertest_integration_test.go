@@ -363,7 +363,10 @@ func TestCompositePrimaryKey_MySQL(t *testing.T) {
 	if err := db.Where("user_id = ? AND role_id = ?", 1, 1).Find(&result4).Error; err != nil {
 		t.Fatalf("Failed to query: %v", err)
 	}
-	if len(result4) != 1 || result4[0].Name != "SuperAdmin" {
+	if len(result4) != 1 {
+		t.Fatalf("Expected 1 result, got %d", len(result4))
+	}
+	if result4[0].Name != "SuperAdmin" {
 		t.Errorf("Expected name 'SuperAdmin', got %s", result4[0].Name)
 	}
 }
@@ -853,13 +856,17 @@ func TestCacheConsistency_Advanced_MySQL(t *testing.T) {
 		const numGoroutines = 5
 		const numUpdates = 3
 		done := make(chan bool, numGoroutines)
+		errCh := make(chan error, numGoroutines)
 
 		for i := 0; i < numGoroutines; i++ {
 			go func(id int) {
 				defer func() { done <- true }()
 				for j := 0; j < numUpdates; j++ {
 					newName := fmt.Sprintf("Update-%d-%d", id, j)
-					db.Model(&UserRole{}).Where("user_id = ? AND role_id = ?", 1000, 2000).Update("name", newName)
+					if err := db.Model(&UserRole{}).Where("user_id = ? AND role_id = ?", 1000, 2000).Update("name", newName).Error; err != nil {
+						errCh <- err
+						return
+					}
 					time.Sleep(10 * time.Millisecond)
 				}
 			}(i)
@@ -867,6 +874,10 @@ func TestCacheConsistency_Advanced_MySQL(t *testing.T) {
 
 		for i := 0; i < numGoroutines; i++ {
 			<-done
+		}
+		close(errCh)
+		for err := range errCh {
+			t.Fatalf("concurrent update failed: %v", err)
 		}
 
 		if err := waitForCondition(20*time.Millisecond, 3*time.Second, func() bool {
