@@ -1,6 +1,7 @@
 package util
 
 import (
+	"encoding/base64"
 	"fmt"
 	"math/rand"
 	"reflect"
@@ -19,17 +20,25 @@ func GenInstanceId() string {
 	return string(str)
 }
 
-// GenPrimaryCacheKey 生成主键缓存key，支持单个主键和联合主键
-// 如果传入多个参数，会按顺序用":"连接；如果只传入一个参数，直接使用（可能是已经连接好的联合主键）
-func GenPrimaryCacheKey(instanceId string, tableName string, primaryKeyValues ...string) string {
-	var key string
-	if len(primaryKeyValues) == 1 {
-		// 单个参数，直接使用（可能是单个主键值，也可能是已经连接好的联合主键）
-		key = primaryKeyValues[0]
-	} else {
-		// 多个参数，用":"连接
-		key = strings.Join(primaryKeyValues, ":")
+// joinKeyParts 对多段做 base64 编码后用 sep 连接，避免 "a:b","c" 与 "a","b:c" 碰撞
+func joinKeyParts(parts []string, sep string) string {
+	if len(parts) == 0 {
+		return ""
 	}
+	if len(parts) == 1 {
+		return parts[0]
+	}
+	encoded := make([]string, len(parts))
+	for i, p := range parts {
+		encoded[i] = base64.RawURLEncoding.EncodeToString([]byte(p))
+	}
+	return strings.Join(encoded, sep)
+}
+
+// GenPrimaryCacheKey 生成主键缓存key，支持单个主键和联合主键
+// 联合主键各段会做 base64 编码，避免含 ":" 的值产生 key 碰撞
+func GenPrimaryCacheKey(instanceId string, tableName string, primaryKeyValues ...string) string {
+	key := joinKeyParts(primaryKeyValues, ":")
 	return fmt.Sprintf("%s:%s:p:%s:%s", GormCachePrefix, instanceId, tableName, key)
 }
 
@@ -54,16 +63,9 @@ func GenPrimaryCachePrefix(instanceId string, tableName string) string {
 }
 
 // GenUniqueCacheKey 生成unique键缓存key，支持单个unique键和联合unique键
-// 如果传入多个参数，会按顺序用":"连接；如果只传入一个参数，直接使用（可能是已经连接好的联合unique键）
+// 联合unique键各段会做 base64 编码，避免含 ":" 的值产生 key 碰撞
 func GenUniqueCacheKey(instanceId string, tableName string, uniqueIndexName string, uniqueKeyValues ...string) string {
-	var key string
-	if len(uniqueKeyValues) == 1 {
-		// 单个参数，直接使用（可能是单个unique键值，也可能是已经连接好的联合unique键）
-		key = uniqueKeyValues[0]
-	} else {
-		// 多个参数，用":"连接
-		key = strings.Join(uniqueKeyValues, ":")
-	}
+	key := joinKeyParts(uniqueKeyValues, ":")
 	return fmt.Sprintf("%s:%s:u:%s:%s:%s", GormCachePrefix, instanceId, tableName, uniqueIndexName, key)
 }
 

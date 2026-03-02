@@ -97,31 +97,12 @@ func getPrimaryKeysFromWhereClause(db *gorm.DB) []string {
 		return uniqueStringSlice(fieldValuesMap[primaryKeyFields[0].DBName])
 	}
 
-	// 对于联合主键：需要组合所有字段的值
-	// 先获取每个字段的值列表长度，取最小值（因为可能有IN查询）
-	maxLen := len(fieldValuesMap[primaryKeyFields[0].DBName])
-	for _, field := range primaryKeyFields[1:] {
-		if len(fieldValuesMap[field.DBName]) < maxLen {
-			maxLen = len(fieldValuesMap[field.DBName])
-		}
+	// 对于联合主键：生成所有字段值的笛卡尔积（如 user_id=1, role_id IN (1,2,3) -> "1:1","1:2","1:3"）
+	valueSlices := make([][]string, 0, len(primaryKeyFields))
+	for _, field := range primaryKeyFields {
+		valueSlices = append(valueSlices, fieldValuesMap[field.DBName])
 	}
-
-	// 生成联合主键key
-	primaryKeys := make([]string, 0, maxLen)
-	for i := 0; i < maxLen; i++ {
-		keyParts := make([]string, 0, len(primaryKeyFields))
-		for _, field := range primaryKeyFields {
-			values := fieldValuesMap[field.DBName]
-			if i < len(values) {
-				keyParts = append(keyParts, values[i])
-			} else {
-				// 如果某个字段的值不够，使用最后一个值
-				keyParts = append(keyParts, values[len(values)-1])
-			}
-		}
-		primaryKeys = append(primaryKeys, strings.Join(keyParts, ":"))
-	}
-
+	primaryKeys := generateCartesianProduct(valueSlices, ":")
 	return uniqueStringSlice(primaryKeys)
 }
 
@@ -312,44 +293,29 @@ func getUniqueKeysFromWhereClause(db *gorm.DB) map[string][]string {
 				result[indexName] = uniqueStringSlice(fieldValuesMap[index.Fields[0].Field.DBName])
 			}
 		} else {
-			// 联合unique键
+			// 联合unique键：笛卡尔积
 			if len(index.Fields) == 0 {
 				continue
 			}
-			firstField := index.Fields[0].Field
-			if firstField == nil {
-				continue
-			}
-			maxLen := len(fieldValuesMap[firstField.DBName])
-			for _, fieldOption := range index.Fields[1:] {
+			valueSlices := make([][]string, 0, len(index.Fields))
+			skip := false
+			for _, fieldOption := range index.Fields {
 				if fieldOption.Field == nil {
-					continue
+					skip = true
+					break
 				}
-				if len(fieldValuesMap[fieldOption.Field.DBName]) < maxLen {
-					maxLen = len(fieldValuesMap[fieldOption.Field.DBName])
+				vals := fieldValuesMap[fieldOption.Field.DBName]
+				if len(vals) == 0 {
+					skip = true
+					break
 				}
+				valueSlices = append(valueSlices, vals)
 			}
-
-			uniqueKeys := make([]string, 0, maxLen)
-			for i := 0; i < maxLen; i++ {
-				keyParts := make([]string, 0, len(index.Fields))
-				for _, fieldOption := range index.Fields {
-					if fieldOption.Field == nil {
-						continue
-					}
-					values := fieldValuesMap[fieldOption.Field.DBName]
-					if i < len(values) {
-						keyParts = append(keyParts, values[i])
-					} else if len(values) > 0 {
-						keyParts = append(keyParts, values[len(values)-1])
-					}
+			if !skip && len(valueSlices) == len(index.Fields) {
+				uniqueKeys := generateCartesianProduct(valueSlices, ":")
+				if len(uniqueKeys) > 0 {
+					result[indexName] = uniqueStringSlice(uniqueKeys)
 				}
-				if len(keyParts) == len(index.Fields) {
-					uniqueKeys = append(uniqueKeys, strings.Join(keyParts, ":"))
-				}
-			}
-			if len(uniqueKeys) > 0 {
-				result[indexName] = uniqueStringSlice(uniqueKeys)
 			}
 		}
 	}
@@ -557,22 +523,23 @@ func getObjectsAfterLoad(db *gorm.DB) (primaryKeys []string, objects []interface
 				primaryKeys = append(primaryKeys, fmt.Sprintf("%v", primaryKey))
 			}
 		} else {
-			// 联合主键
+			// 联合主键：必须所有字段都能取到非零值，且 ValueOf 非 nil
 			keyParts := make([]string, 0, len(primaryKeyFields))
-			allZero := true
+			valid := true
 			for _, field := range primaryKeyFields {
 				valueOf := field.ValueOf
-				if valueOf != nil {
-					primaryKey, isZero := valueOf(context.Background(), elemValue)
-					if isZero {
-						allZero = true
-						break
-					}
-					allZero = false
-					keyParts = append(keyParts, fmt.Sprintf("%v", primaryKey))
+				if valueOf == nil {
+					valid = false
+					break
 				}
+				primaryKey, isZero := valueOf(context.Background(), elemValue)
+				if isZero {
+					valid = false
+					break
+				}
+				keyParts = append(keyParts, fmt.Sprintf("%v", primaryKey))
 			}
-			if allZero {
+			if !valid || len(keyParts) != len(primaryKeyFields) {
 				continue
 			}
 			primaryKeys = append(primaryKeys, strings.Join(keyParts, ":"))
@@ -632,6 +599,44 @@ func getUniqueKeysFromObjects(db *gorm.DB, objects []interface{}) map[string]map
 
 	if len(result) == 0 {
 		return nil
+	}
+	return result
+}
+
+// generateCartesianProduct 对多列值做笛卡尔积，每行用 sep 连接成一条 key。
+// 例如 valueSlices = [["1"], ["1","2","3"]] -> ["1:1","1:2","1:3"]。
+func generateCartesianProduct(valueSlices [][]string, sep string) []string {
+	if len(valueSlices) == 0 {
+		return nil
+	}
+	n := 1
+	for _, s := range valueSlices {
+		if len(s) == 0 {
+			return nil
+		}
+		n *= len(s)
+	}
+	result := make([]string, 0, n)
+	idx := make([]int, len(valueSlices))
+	for {
+		parts := make([]string, len(valueSlices))
+		for i, s := range valueSlices {
+			parts[i] = s[idx[i]]
+		}
+		result = append(result, strings.Join(parts, sep))
+		// next combination
+		j := len(valueSlices) - 1
+		for j >= 0 {
+			idx[j]++
+			if idx[j] < len(valueSlices[j]) {
+				break
+			}
+			idx[j] = 0
+			j--
+		}
+		if j < 0 {
+			break
+		}
 	}
 	return result
 }

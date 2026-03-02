@@ -189,7 +189,8 @@ func (c *Gorm2Cache) BatchGetUniqueCache(ctx context.Context, tableName string, 
 	return c.cache.BatchGetValues(ctx, cacheKeys)
 }
 
-// BatchSetUniqueCache 批量设置unique键缓存
+// BatchSetUniqueCache 批量设置unique键缓存。
+// 注意：会原地修改 kvs 中每个元素的 Key 为完整缓存 key，调用方不应再使用传入的 kvs。
 func (c *Gorm2Cache) BatchSetUniqueCache(ctx context.Context, tableName string, uniqueIndexName string, kvs []util.Kv) error {
 	for idx, kv := range kvs {
 		// kv.Key 已经是最终格式（单个值或已用":"连接的联合unique键），直接传入
