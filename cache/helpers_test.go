@@ -375,6 +375,49 @@ func TestGetPrimaryKeyFields(t *testing.T) {
 	}
 }
 
+// TestGetPrimaryKeysFromWhereClause_CompositeKeyCartesianProduct ensures
+// composite primary key with differing value counts (e.g. user_id=1, role_id IN (1,2,3))
+// yields Cartesian product ["1:1","1:2","1:3"], not just ["1:1"].
+func TestGetPrimaryKeysFromWhereClause_CompositeKeyCartesianProduct(t *testing.T) {
+	s := &schema.Schema{
+		Table: "user_roles",
+	}
+	s.Fields = []*schema.Field{
+		{DBName: "user_id", PrimaryKey: true},
+		{DBName: "role_id", PrimaryKey: true},
+		{DBName: "name", PrimaryKey: false},
+	}
+	db := &gorm.DB{
+		Statement: &gorm.Statement{
+			Schema: s,
+		},
+	}
+	db.Statement.Clauses = map[string]clause.Clause{
+		"WHERE": {
+			Expression: clause.Where{
+				Exprs: []clause.Expression{
+					clause.Eq{Column: "user_id", Value: 1},
+					clause.IN{Column: "role_id", Values: []interface{}{1, 2, 3}},
+				},
+			},
+		},
+	}
+	got := getPrimaryKeysFromWhereClause(db)
+	want := []string{"1:1", "1:2", "1:3"}
+	if len(got) != len(want) {
+		t.Fatalf("expected %d keys, got %d: %v", len(want), len(got), got)
+	}
+	seen := make(map[string]bool)
+	for _, k := range got {
+		seen[k] = true
+	}
+	for _, w := range want {
+		if !seen[w] {
+			t.Errorf("missing expected key %q, got %v", w, got)
+		}
+	}
+}
+
 func TestGetAllUniqueIndexes(t *testing.T) {
 	tests := []struct {
 		name          string

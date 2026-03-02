@@ -39,12 +39,12 @@ func TestGenPrimaryCacheKey(t *testing.T) {
 		{
 			name:           "composite primary key",
 			primaryKeyVals: []string{"1", "2"},
-			expected:       "gormcache:test123:p:users:1:2",
+			expected:       "gormcache:test123:p:users:MQ:Mg", // base64-encoded parts to avoid ":" collision
 		},
 		{
 			name:           "composite primary key with three fields",
 			primaryKeyVals: []string{"1", "2", "3"},
-			expected:       "gormcache:test123:p:users:1:2:3",
+			expected:       "gormcache:test123:p:users:MQ:Mg:Mw",
 		},
 	}
 	
@@ -80,7 +80,7 @@ func TestGenPrimaryCacheKeyFromMap(t *testing.T) {
 				"user_id": "1",
 				"role_id": "2",
 			},
-			expected: "gormcache:test123:p:users:1:2", // sorted by field name: role_id, user_id
+			expected: "gormcache:test123:p:users:Mg:MQ", // sorted: role_id, user_id -> values 2,1 -> base64
 		},
 		{
 			name: "composite primary key with three fields",
@@ -89,7 +89,7 @@ func TestGenPrimaryCacheKeyFromMap(t *testing.T) {
 				"b": "2",
 				"c": "3",
 			},
-			expected: "gormcache:test123:p:users:1:2:3", // sorted: a, b, c
+			expected: "gormcache:test123:p:users:MQ:Mg:Mw", // sorted: a, b, c
 		},
 	}
 	
@@ -105,23 +105,25 @@ func TestGenPrimaryCacheKeyFromMap(t *testing.T) {
 			if !strings.Contains(key, expectedPrefix) {
 				t.Errorf("key should contain prefix %s, got %s", expectedPrefix, key)
 			}
-			// 对于单个key，验证完整匹配
-			if len(tt.primaryKeyMap) == 1 {
-				if key != tt.expected {
-					t.Errorf("expected %s, got %s", tt.expected, key)
-				}
-			} else {
-				// 对于多个key，验证包含所有值
-				for _, val := range tt.primaryKeyMap {
-					if !strings.Contains(key, val) {
-						t.Errorf("key should contain value %s, got %s", val, key)
-					}
-				}
+			if key != tt.expected {
+				t.Errorf("expected %s, got %s", tt.expected, key)
 			}
 		})
 	}
 }
 
+
+// TestGenPrimaryCacheKey_NoCollision ensures composite key parts are encoded so that
+// ["a:b","c"] and ["a","b:c"] do not produce the same cache key.
+func TestGenPrimaryCacheKey_NoCollision(t *testing.T) {
+	instanceId := "test123"
+	tableName := "users"
+	k1 := GenPrimaryCacheKey(instanceId, tableName, "a:b", "c")
+	k2 := GenPrimaryCacheKey(instanceId, tableName, "a", "b:c")
+	if k1 == k2 {
+		t.Errorf("composite keys must not collide: both produced %q", k1)
+	}
+}
 
 func TestGenPrimaryCachePrefix(t *testing.T) {
 	instanceId := "test123"
@@ -344,12 +346,12 @@ func TestGenUniqueCacheKey(t *testing.T) {
 		{
 			name:          "composite unique key",
 			uniqueKeyVals: []string{"user@example.com", "123"},
-			expected:      "gormcache:test123:u:users:idx_email:user@example.com:123",
+			expected:      "gormcache:test123:u:users:idx_email:dXNlckBleGFtcGxlLmNvbQ:MTIz", // base64-encoded
 		},
 		{
 			name:          "composite unique key with three fields",
 			uniqueKeyVals: []string{"1", "2", "3"},
-			expected:      "gormcache:test123:u:users:idx_email:1:2:3",
+			expected:      "gormcache:test123:u:users:idx_email:MQ:Mg:Mw",
 		},
 	}
 	
@@ -386,7 +388,7 @@ func TestGenUniqueCacheKeyFromMap(t *testing.T) {
 				"email": "user@example.com",
 				"code":  "123",
 			},
-			expected: "gormcache:test123:u:users:idx_email:123:user@example.com", // sorted: code, email
+			expected: "gormcache:test123:u:users:idx_email:MTIz:dXNlckBleGFtcGxlLmNvbQ", // sorted: code, email -> base64
 		},
 		{
 			name: "composite unique key with three fields",
@@ -395,7 +397,7 @@ func TestGenUniqueCacheKeyFromMap(t *testing.T) {
 				"b": "2",
 				"c": "3",
 			},
-			expected: "gormcache:test123:u:users:idx_email:1:2:3", // sorted: a, b, c
+			expected: "gormcache:test123:u:users:idx_email:MQ:Mg:Mw",
 		},
 	}
 	
@@ -411,18 +413,8 @@ func TestGenUniqueCacheKeyFromMap(t *testing.T) {
 			if !strings.Contains(key, expectedPrefix) {
 				t.Errorf("key should contain prefix %s, got %s", expectedPrefix, key)
 			}
-			// 对于单个key，验证完整匹配
-			if len(tt.uniqueKeyMap) == 1 {
-				if key != tt.expected {
-					t.Errorf("expected %s, got %s", tt.expected, key)
-				}
-			} else {
-				// 对于多个key，验证包含所有值
-				for _, val := range tt.uniqueKeyMap {
-					if !strings.Contains(key, val) {
-						t.Errorf("key should contain value %s, got %s", val, key)
-					}
-				}
+			if key != tt.expected {
+				t.Errorf("expected %s, got %s", tt.expected, key)
 			}
 		})
 	}

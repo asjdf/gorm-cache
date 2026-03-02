@@ -137,10 +137,10 @@ func (h *queryHandler) BeforeQuery() func(db *gorm.DB) {
 					return
 				}
 
-				// primary cache hit
-				cacheValues, err := cache.BatchGetPrimaryCache(ctx, tableName, primaryKeys)
+				// primary cache hit (use db.Statement.Context: when leader it is bgCtx to avoid cascading cancel)
+				cacheValues, err := cache.BatchGetPrimaryCache(db.Statement.Context, tableName, primaryKeys)
 				if err != nil {
-					cache.Logger.CtxError(ctx, "[BeforeQuery] get primary cache value for key %v error: %v", primaryKeys, err)
+					cache.Logger.CtxError(db.Statement.Context, "[BeforeQuery] get primary cache value for key %v error: %v", primaryKeys, err)
 					db.Error = nil
 					return
 				}
@@ -193,10 +193,10 @@ func (h *queryHandler) BeforeQuery() func(db *gorm.DB) {
 						continue
 					}
 
-					// unique cache hit
-					cacheValues, err := cache.BatchGetUniqueCache(ctx, tableName, uniqueIndexName, uniqueKeys)
+					// unique cache hit (use db.Statement.Context: when leader it is bgCtx to avoid cascading cancel)
+					cacheValues, err := cache.BatchGetUniqueCache(db.Statement.Context, tableName, uniqueIndexName, uniqueKeys)
 					if err != nil {
-						cache.Logger.CtxError(ctx, "[BeforeQuery] get unique cache value for index %s key %v error: %v", uniqueIndexName, uniqueKeys, err)
+						cache.Logger.CtxError(db.Statement.Context, "[BeforeQuery] get unique cache value for index %s key %v error: %v", uniqueIndexName, uniqueKeys, err)
 						continue
 					}
 					if len(cacheValues) != len(uniqueKeys) {
@@ -228,11 +228,11 @@ func (h *queryHandler) BeforeQuery() func(db *gorm.DB) {
 			}
 
 			trySearchCache := func() (hit bool) {
-				// search cache hit
-				cacheValue, err := cache.GetSearchCache(ctx, tableName, sql, db.Statement.Vars...)
+				// search cache hit (use db.Statement.Context: when leader it is bgCtx to avoid cascading cancel)
+				cacheValue, err := cache.GetSearchCache(db.Statement.Context, tableName, sql, db.Statement.Vars...)
 				if err != nil {
 					if !errors.Is(err, storage.ErrCacheNotFound) {
-						cache.Logger.CtxError(ctx, "[BeforeQuery] get cache value for sql %s error: %v", sql, err)
+						cache.Logger.CtxError(db.Statement.Context, "[BeforeQuery] get cache value for sql %s error: %v", sql, err)
 					}
 					db.Error = nil
 					return
@@ -419,7 +419,7 @@ func (h *queryHandler) AfterQuery() func(db *gorm.DB) {
 									}
 								}
 								if len(uniqueKvs) > 0 {
-									cache.Logger.CtxInfo(ctx, "[AfterQuery] start to set unique cache for index %s kvs: %+v", indexName, uniqueKvs)
+									cache.Logger.CtxInfo(ctx, "[AfterQuery] start to set unique cache for index %s count=%d", indexName, len(uniqueKvs))
 									err := cache.BatchSetUniqueCache(ctx, tableName, indexName, uniqueKvs)
 									if err != nil {
 										cache.Logger.CtxError(ctx, "[AfterQuery] batch set unique cache for index %s error: %v", indexName, err)
