@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -133,7 +134,9 @@ func setupMySQL(t *testing.T) *gorm.DB {
 	}
 
 	// Clean tables before each test
-	mysqlDB.Exec("DROP TABLE IF EXISTS user_roles, users, user_sessions")
+	if err := mysqlDB.Exec("DROP TABLE IF EXISTS user_roles, users, user_sessions").Error; err != nil {
+		t.Fatalf("failed to drop MySQL tables: %v", err)
+	}
 
 	// Auto migrate
 	err := mysqlDB.AutoMigrate(&UserRole{}, &User{}, &UserSession{})
@@ -213,7 +216,9 @@ func setupPostgreSQL(t *testing.T) *gorm.DB {
 	}
 
 	// Clean tables before each test
-	pgDB.Exec("DROP TABLE IF EXISTS user_roles, users, user_sessions CASCADE")
+	if err := pgDB.Exec("DROP TABLE IF EXISTS user_roles, users, user_sessions CASCADE").Error; err != nil {
+		t.Fatalf("failed to drop PostgreSQL tables: %v", err)
+	}
 
 	// Auto migrate
 	err := pgDB.AutoMigrate(&UserRole{}, &User{}, &UserSession{})
@@ -314,7 +319,9 @@ func TestCompositePrimaryKey_MySQL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create cache: %v", err)
 	}
-	db.Use(cache)
+	if err := db.Use(cache); err != nil {
+		t.Fatalf("failed to register cache plugin: %v", err)
+	}
 
 	// 创建测试数据
 	userRoles := []UserRole{
@@ -379,7 +386,9 @@ func TestCompositePrimaryKey_PostgreSQL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create cache: %v", err)
 	}
-	db.Use(cache)
+	if err := db.Use(cache); err != nil {
+		t.Fatalf("failed to register cache plugin: %v", err)
+	}
 
 	// 创建测试数据
 	userRoles := []UserRole{
@@ -418,7 +427,9 @@ func TestUniqueKey_MySQL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create cache: %v", err)
 	}
-	db.Use(cache)
+	if err := db.Use(cache); err != nil {
+		t.Fatalf("failed to register cache plugin: %v", err)
+	}
 
 	// 创建测试数据
 	users := []User{
@@ -473,7 +484,9 @@ func TestCompositeUniqueKey_MySQL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create cache: %v", err)
 	}
-	db.Use(cache)
+	if err := db.Use(cache); err != nil {
+		t.Fatalf("failed to register cache plugin: %v", err)
+	}
 
 	// 创建测试数据
 	sessions := []UserSession{
@@ -519,7 +532,9 @@ func TestUniqueKey_PostgreSQL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create cache: %v", err)
 	}
-	db.Use(cache)
+	if err := db.Use(cache); err != nil {
+		t.Fatalf("failed to register cache plugin: %v", err)
+	}
 
 	// 创建测试数据
 	users := []User{
@@ -557,7 +572,9 @@ func TestCacheInvalidation_MySQL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create cache: %v", err)
 	}
-	db.Use(cache)
+	if err := db.Use(cache); err != nil {
+		t.Fatalf("failed to register cache plugin: %v", err)
+	}
 
 	// 创建测试数据
 	userRole := UserRole{UserID: 1, RoleID: 1, Name: "Admin"}
@@ -648,7 +665,9 @@ func TestCacheConsistency_Comprehensive_MySQL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create cache: %v", err)
 	}
-	db.Use(cache)
+	if err := db.Use(cache); err != nil {
+		t.Fatalf("failed to register cache plugin: %v", err)
+	}
 
 	t.Run("CreateAndQuery", func(t *testing.T) {
 		// 创建数据后立即查询
@@ -674,7 +693,9 @@ func TestCacheConsistency_Comprehensive_MySQL(t *testing.T) {
 		}
 
 		// 查询缓存
-		db.Where("user_id = ? AND role_id = ?", 100, 200).First(&UserRole{})
+		if err := db.Where("user_id = ? AND role_id = ?", 100, 200).First(&UserRole{}).Error; err != nil {
+			t.Fatalf("failed to warm cache: %v", err)
+		}
 
 		// 更新
 		if err := db.Model(&UserRole{}).Where("user_id = ? AND role_id = ?", 100, 200).Update("name", "Updated").Error; err != nil {
@@ -720,7 +741,9 @@ func TestCacheConsistency_Comprehensive_MySQL(t *testing.T) {
 		}
 
 		// 通过unique键查询缓存
-		db.Where("email = ?", "unique@test.com").First(&User{})
+		if err := db.Where("email = ?", "unique@test.com").First(&User{}).Error; err != nil {
+			t.Fatalf("failed to warm cache: %v", err)
+		}
 
 		// 更新
 		if err := db.Model(&User{}).Where("id = ?", user.ID).Update("name", "Updated").Error; err != nil {
@@ -755,7 +778,9 @@ func TestCacheConsistency_Comprehensive_MySQL(t *testing.T) {
 		}
 
 		// 查询缓存
-		db.Where("user_id = ? AND role_id = ?", 200, 300).First(&UserRole{})
+		if err := db.Where("user_id = ? AND role_id = ?", 200, 300).First(&UserRole{}).Error; err != nil {
+			t.Fatalf("failed to warm cache: %v", err)
+		}
 
 		// 删除
 		if err := db.Where("user_id = ? AND role_id = ?", 200, 300).Delete(&UserRole{}).Error; err != nil {
@@ -765,7 +790,7 @@ func TestCacheConsistency_Comprehensive_MySQL(t *testing.T) {
 		if err := waitForCondition(15*time.Millisecond, 2*time.Second, func() bool {
 			var r UserRole
 			err := db.Where("user_id = ? AND role_id = ?", 200, 300).First(&r).Error
-			return err != nil && err == gorm.ErrRecordNotFound
+			return errors.Is(err, gorm.ErrRecordNotFound)
 		}); err != nil {
 			t.Fatalf("cache did not reflect delete: %v", err)
 		}
@@ -774,7 +799,7 @@ func TestCacheConsistency_Comprehensive_MySQL(t *testing.T) {
 		var result UserRole
 		if err := db.Where("user_id = ? AND role_id = ?", 200, 300).First(&result).Error; err == nil {
 			t.Error("Expected error for deleted record")
-		} else if err != gorm.ErrRecordNotFound {
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 			t.Errorf("Expected ErrRecordNotFound, got %v", err)
 		}
 	})
@@ -812,7 +837,9 @@ func TestCacheConsistency_Advanced_MySQL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create cache: %v", err)
 	}
-	db.Use(cache)
+	if err := db.Use(cache); err != nil {
+		t.Fatalf("failed to register cache plugin: %v", err)
+	}
 
 	t.Run("BatchUpdate", func(t *testing.T) {
 		// 批量更新
@@ -918,7 +945,9 @@ func TestCacheConsistency_Advanced_MySQL(t *testing.T) {
 			t.Fatalf("Failed to create: %v", err)
 		}
 
-		db.Where("user_id = ? AND role_id = ?", 2000, 3000).First(&UserRole{})
+		if err := db.Where("user_id = ? AND role_id = ?", 2000, 3000).First(&UserRole{}).Error; err != nil {
+			t.Fatalf("failed to warm cache: %v", err)
+		}
 
 		if err := db.Where("user_id = ? AND role_id = ?", 2000, 3000).Delete(&UserRole{}).Error; err != nil {
 			t.Fatalf("Failed to delete: %v", err)
@@ -926,7 +955,7 @@ func TestCacheConsistency_Advanced_MySQL(t *testing.T) {
 
 		if err := waitForCondition(15*time.Millisecond, 2*time.Second, func() bool {
 			var r UserRole
-			return db.Where("user_id = ? AND role_id = ?", 2000, 3000).First(&r).Error == gorm.ErrRecordNotFound
+			return errors.Is(db.Where("user_id = ? AND role_id = ?", 2000, 3000).First(&r).Error, gorm.ErrRecordNotFound)
 		}); err != nil {
 			t.Fatalf("cache did not reflect delete: %v", err)
 		}
@@ -967,8 +996,12 @@ func TestCacheConsistency_Advanced_MySQL(t *testing.T) {
 			t.Fatalf("Failed to create: %v", err)
 		}
 
-		db.Where("email = ?", "cross@test.com").First(&User{})
-		db.Where("username = ?", "crossuser").First(&User{})
+		if err := db.Where("email = ?", "cross@test.com").First(&User{}).Error; err != nil {
+			t.Fatalf("failed to warm cache by email: %v", err)
+		}
+		if err := db.Where("username = ?", "crossuser").First(&User{}).Error; err != nil {
+			t.Fatalf("failed to warm cache by username: %v", err)
+		}
 
 		if err := db.Model(&User{}).Where("id = ?", user.ID).Update("name", "Updated").Error; err != nil {
 			t.Fatalf("Failed to update: %v", err)
