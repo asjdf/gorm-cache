@@ -1,12 +1,14 @@
 package cache
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/asjdf/gorm-cache/config"
 	"github.com/asjdf/gorm-cache/storage"
@@ -19,6 +21,14 @@ import (
 // singleFlight 流程设计
 // 根据key lock住，等待结果。query before之前，会先判断是否有key，如果有，就等待结果，如果没有，就执行query before，然后执行query，然后把结果放到key里面，然后unlock，然后返回结果。
 // 等待完成后 进行一手返回 然后err设置为err.singleflightHit，afterQuery结束的时候进行一手检查
+//
+// 为避免「一人取消，全家报错」：抢到执行权的 leader 必须用独立的 background context 查库/读缓存，
+// 否则若 leader 的请求 context 先被 cancel，会连累所有等待同一 key 的请求拿到同一个 cancel 错误。
+const singleflightContextTimeout = 30 * time.Second
+
+// singleFlightLeaderDelayForTest 仅用于单测：leader 抢到锁后睡眠时长，便于复现「一人取消全家报错」。
+// 由 _test 中赋值为非 0（如 50ms），测试结束后置回 0。
+var singleFlightLeaderDelayForTest time.Duration
 
 func newQueryHandler(c *Gorm2Cache) *queryHandler {
 	return &queryHandler{cache: c}
@@ -103,6 +113,14 @@ func (h *queryHandler) BeforeQuery() func(db *gorm.DB) {
 			h.singleFlight.m[singleFlightKey] = c
 			h.singleFlight.mu.Unlock()
 			db.InstanceSet("gorm:cache:query:single_flight_call", c)
+			if singleFlightLeaderDelayForTest > 0 {
+				time.Sleep(singleFlightLeaderDelayForTest)
+			}
+
+			// 避免「一人取消，全家报错」：leader 用独立 background context，不随首个请求的 cancel 而中断
+			bgCtx, cancel := context.WithTimeout(context.Background(), singleflightContextTimeout)
+			db.Statement.Context = bgCtx
+			db.InstanceSet("gorm:cache:query:single_flight_cancel", cancel)
 
 			tryPrimaryCache := func() (hit bool) {
 				primaryKeys := getPrimaryKeysFromWhereClause(db)
@@ -471,6 +489,12 @@ func (h *queryHandler) fillCallAfterQuery(db *gorm.DB) {
 			// 如果可能，记录日志
 		}
 		return
+	}
+	// 释放 singleflight leader 使用的 background context，避免 timer 泄漏
+	if cancelObj, hasCancel := db.InstanceGet("gorm:cache:query:single_flight_cancel"); hasCancel {
+		if cancel, ok := cancelObj.(context.CancelFunc); ok {
+			cancel()
+		}
 	}
 	c.dest = db.Statement.Dest
 	c.rowsAffected = db.RowsAffected
