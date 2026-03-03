@@ -72,8 +72,15 @@ func AfterUpdate(cache *Gorm2Cache) func(db *gorm.DB) {
 						}
 					} else {
 						// 如果没有从WHERE子句提取到unique键，失效所有unique键缓存
-						if db.Statement.Schema != nil {
-							allUniqueIndexes := getAllUniqueIndexes(db.Statement.Schema)
+						s := db.Statement.Schema
+						if s == nil && db.Statement.Model != nil {
+							stmt := &gorm.Statement{DB: db}
+							if err := stmt.Parse(db.Statement.Model); err == nil {
+								s = stmt.Schema
+							}
+						}
+						if s != nil {
+							allUniqueIndexes := getAllUniqueIndexes(s)
 							for indexName := range allUniqueIndexes {
 								cache.Logger.CtxInfo(ctx, "[AfterUpdate] now start to invalidate all unique cache for index %s", indexName)
 								err := cache.InvalidateAllUniqueCache(ctx, tableName, indexName)
