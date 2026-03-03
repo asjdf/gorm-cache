@@ -437,6 +437,8 @@ func (h *queryHandler) AfterQuery() func(db *gorm.DB) {
 								wg.Wait()
 								cancel()
 							}()
+							// 替换为 no-op，fillCallAfterQuery 统一调用 cancel 时不会提前中止异步写；cache hit 时仍是真实 cancel，会释放 timer
+							db.InstanceSet("gorm:cache:query:single_flight_cancel", context.CancelFunc(func() {}))
 						}
 					}
 				} else {
@@ -501,12 +503,10 @@ func (h *queryHandler) fillCallAfterQuery(db *gorm.DB) {
 		return
 	}
 	// 释放 singleflight leader 使用的 background context，避免 timer 泄漏
-	// AsyncWrite 时由 AfterQuery 内启动的 goroutine 在 wg.Wait() 后 cancel，此处不 cancel 以免提前中止异步写缓存
-	if !h.cache.Config.AsyncWrite {
-		if cancelObj, hasCancel := db.InstanceGet("gorm:cache:query:single_flight_cancel"); hasCancel {
-			if cancel, ok := cancelObj.(context.CancelFunc); ok {
-				cancel()
-			}
+	// AsyncWrite 且走异步写路径时已把 cancel 替换为 no-op；cache hit 时此处调用真实 cancel，避免 30s timer 泄漏
+	if cancelObj, hasCancel := db.InstanceGet("gorm:cache:query:single_flight_cancel"); hasCancel {
+		if cancel, ok := cancelObj.(context.CancelFunc); ok {
+			cancel()
 		}
 	}
 	c.dest = db.Statement.Dest

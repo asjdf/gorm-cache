@@ -40,18 +40,18 @@ func AfterUpdate(cache *Gorm2Cache) func(db *gorm.DB) {
 						if err != nil {
 							cache.Logger.CtxError(ctx, "[AfterUpdate] invalidating primary cache for key %v error: %v",
 								primaryKeys, err)
-							return
+						} else {
+							cache.Logger.CtxInfo(ctx, "[AfterUpdate] invalidating cache for primary keys: %+v finished.", primaryKeys)
 						}
-						cache.Logger.CtxInfo(ctx, "[AfterUpdate] invalidating cache for primary keys: %+v finished.", primaryKeys)
 					} else {
 						cache.Logger.CtxInfo(ctx, "[AfterUpdate] now start to invalidate all primary cache for table: %s", tableName)
 						err := cache.InvalidateAllPrimaryCache(ctx, tableName)
 						if err != nil {
 							cache.Logger.CtxError(ctx, "[AfterUpdate] invalidating primary cache for table %s error: %v",
 								tableName, err)
-							return
+						} else {
+							cache.Logger.CtxInfo(ctx, "[AfterUpdate] invalidating all primary cache for table: %s finished.", tableName)
 						}
-						cache.Logger.CtxInfo(ctx, "[AfterUpdate] invalidating all primary cache for table: %s finished.", tableName)
 					}
 
 					// 失效unique键缓存
