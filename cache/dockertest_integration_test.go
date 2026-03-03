@@ -58,7 +58,6 @@ func (UserSession) TableName() string {
 var (
 	mysqlPool        *dockertest.Pool
 	mysqlResource    *dockertest.Resource
-	mysqlDB          *gorm.DB
 	mysqlDSN         string
 	setupMySQLOnce   sync.Once
 	cleanupMySQLOnce sync.Once
@@ -66,7 +65,6 @@ var (
 
 	pgPool        *dockertest.Pool
 	pgResource    *dockertest.Resource
-	pgDB          *gorm.DB
 	pgDSN         string
 	setupPGOnce   sync.Once
 	cleanupPGOnce sync.Once
@@ -106,21 +104,19 @@ func setupMySQL(t *testing.T) *gorm.DB {
 
 		mysqlPool.MaxWait = 120 * time.Second
 		if err := mysqlPool.Retry(func() error {
-			var openErr error
-			mysqlDB, openErr = gorm.Open(mysql.Open(mysqlDSN), &gorm.Config{
+			conn, openErr := gorm.Open(mysql.Open(mysqlDSN), &gorm.Config{
 				Logger: logger.Default.LogMode(logger.Silent),
 			})
 			if openErr != nil {
 				return openErr
 			}
-			sqlDB, openErr := mysqlDB.DB()
+			sqlDB, openErr := conn.DB()
 			if openErr != nil {
 				return openErr
 			}
-			sqlDB.SetMaxOpenConns(10)
-			sqlDB.SetMaxIdleConns(5)
-			sqlDB.SetConnMaxLifetime(time.Hour)
-			return sqlDB.Ping()
+			err := sqlDB.Ping()
+			_ = sqlDB.Close()
+			return err
 		}); err != nil {
 			mysqlSetupErr = fmt.Errorf("could not connect to MySQL: %w", err)
 			return
@@ -129,22 +125,31 @@ func setupMySQL(t *testing.T) *gorm.DB {
 	if mysqlSetupErr != nil {
 		t.Fatalf("MySQL setup failed: %v", mysqlSetupErr)
 	}
-	if mysqlDB == nil {
-		t.Fatal("MySQL DB is nil after setup")
-	}
 
-	// Clean tables before each test
-	if err := mysqlDB.Exec("DROP TABLE IF EXISTS user_roles, users, user_sessions").Error; err != nil {
+	db, err := gorm.Open(mysql.Open(mysqlDSN), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		t.Fatalf("open MySQL DB failed: %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("get sql.DB from gorm failed: %v", err)
+	}
+	sqlDB.SetMaxOpenConns(10)
+	sqlDB.SetMaxIdleConns(5)
+	sqlDB.SetConnMaxLifetime(time.Hour)
+	t.Cleanup(func() {
+		_ = sqlDB.Close()
+	})
+
+	if err := db.Exec("DROP TABLE IF EXISTS user_roles, users, user_sessions").Error; err != nil {
 		t.Fatalf("failed to drop MySQL tables: %v", err)
 	}
-
-	// Auto migrate
-	err := mysqlDB.AutoMigrate(&UserRole{}, &User{}, &UserSession{})
-	if err != nil {
+	if err := db.AutoMigrate(&UserRole{}, &User{}, &UserSession{}); err != nil {
 		t.Fatalf("Auto migrate error: %v", err)
 	}
-
-	return mysqlDB
+	return db
 }
 
 func setupPostgreSQL(t *testing.T) *gorm.DB {
@@ -188,21 +193,19 @@ func setupPostgreSQL(t *testing.T) *gorm.DB {
 
 		pgPool.MaxWait = 120 * time.Second
 		if err := pgPool.Retry(func() error {
-			var openErr error
-			pgDB, openErr = gorm.Open(postgres.Open(pgDSN), &gorm.Config{
+			conn, openErr := gorm.Open(postgres.Open(pgDSN), &gorm.Config{
 				Logger: logger.Default.LogMode(logger.Silent),
 			})
 			if openErr != nil {
 				return openErr
 			}
-			sqlDB, openErr := pgDB.DB()
+			sqlDB, openErr := conn.DB()
 			if openErr != nil {
 				return openErr
 			}
-			sqlDB.SetMaxOpenConns(10)
-			sqlDB.SetMaxIdleConns(5)
-			sqlDB.SetConnMaxLifetime(time.Hour)
-			return sqlDB.Ping()
+			err := sqlDB.Ping()
+			_ = sqlDB.Close()
+			return err
 		}); err != nil {
 			pgSetupErr = fmt.Errorf("could not connect to PostgreSQL: %w", err)
 			return
@@ -211,47 +214,43 @@ func setupPostgreSQL(t *testing.T) *gorm.DB {
 	if pgSetupErr != nil {
 		t.Fatalf("PostgreSQL setup failed: %v", pgSetupErr)
 	}
-	if pgDB == nil {
-		t.Fatal("PostgreSQL DB is nil after setup")
-	}
 
-	// Clean tables before each test
-	if err := pgDB.Exec("DROP TABLE IF EXISTS user_roles, users, user_sessions CASCADE").Error; err != nil {
+	db, err := gorm.Open(postgres.Open(pgDSN), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		t.Fatalf("open PostgreSQL DB failed: %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("get sql.DB from gorm failed: %v", err)
+	}
+	sqlDB.SetMaxOpenConns(10)
+	sqlDB.SetMaxIdleConns(5)
+	sqlDB.SetConnMaxLifetime(time.Hour)
+	t.Cleanup(func() {
+		_ = sqlDB.Close()
+	})
+
+	if err := db.Exec("DROP TABLE IF EXISTS user_roles, users, user_sessions CASCADE").Error; err != nil {
 		t.Fatalf("failed to drop PostgreSQL tables: %v", err)
 	}
-
-	// Auto migrate
-	err := pgDB.AutoMigrate(&UserRole{}, &User{}, &UserSession{})
-	if err != nil {
+	if err := db.AutoMigrate(&UserRole{}, &User{}, &UserSession{}); err != nil {
 		t.Fatalf("Auto migrate error: %v", err)
 	}
-
-	return pgDB
+	return db
 }
 
 func TestMain(m *testing.M) {
 	code := m.Run()
 
-	// Cleanup
+	// Cleanup: 每测试独立 *gorm.DB 由 t.Cleanup 关闭，此处仅回收容器
 	cleanupMySQLOnce.Do(func() {
-		if mysqlDB != nil {
-			sqlDB, _ := mysqlDB.DB()
-			if sqlDB != nil {
-				sqlDB.Close()
-			}
-		}
 		if mysqlResource != nil && mysqlPool != nil {
 			_ = mysqlPool.Purge(mysqlResource)
 		}
 	})
-
 	cleanupPGOnce.Do(func() {
-		if pgDB != nil {
-			sqlDB, _ := pgDB.DB()
-			if sqlDB != nil {
-				sqlDB.Close()
-			}
-		}
 		if pgResource != nil && pgPool != nil {
 			_ = pgPool.Purge(pgResource)
 		}
@@ -622,7 +621,9 @@ func TestCacheStats_MySQL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create cache: %v", err)
 	}
-	db.Use(cache)
+	if err := db.Use(cache); err != nil {
+		t.Fatalf("failed to register cache plugin: %v", err)
+	}
 
 	// 创建测试数据
 	user := User{Email: "test@example.com", Username: "test", Name: "Test User"}
