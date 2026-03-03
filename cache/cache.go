@@ -149,11 +149,14 @@ func (c *Gorm2Cache) SearchKeyExists(ctx context.Context, tableName string, SQL 
 }
 
 func (c *Gorm2Cache) BatchSetPrimaryKeyCache(ctx context.Context, tableName string, kvs []util.Kv) error {
-	for idx, kv := range kvs {
-		// kv.Key 已经是最终格式（单个值或已用":"连接的联合主键），直接传入
-		kvs[idx].Key = util.GenPrimaryCacheKey(c.InstanceId, tableName, kv.Key)
+	cacheKvs := make([]util.Kv, 0, len(kvs))
+	for _, kv := range kvs {
+		cacheKvs = append(cacheKvs, util.Kv{
+			Key:   util.GenPrimaryCacheKey(c.InstanceId, tableName, kv.Key),
+			Value: kv.Value,
+		})
 	}
-	return c.cache.BatchSetKeys(ctx, kvs)
+	return c.cache.BatchSetKeys(ctx, cacheKvs)
 }
 
 func (c *Gorm2Cache) SetSearchCache(ctx context.Context, cacheValue string, tableName string,
@@ -189,14 +192,16 @@ func (c *Gorm2Cache) BatchGetUniqueCache(ctx context.Context, tableName string, 
 	return c.cache.BatchGetValues(ctx, cacheKeys)
 }
 
-// BatchSetUniqueCache 批量设置unique键缓存。
-// 注意：会原地修改 kvs 中每个元素的 Key 为完整缓存 key，调用方不应再使用传入的 kvs。
+// BatchSetUniqueCache 批量设置 unique 键缓存。不会修改调用方传入的 kvs。
 func (c *Gorm2Cache) BatchSetUniqueCache(ctx context.Context, tableName string, uniqueIndexName string, kvs []util.Kv) error {
-	for idx, kv := range kvs {
-		// kv.Key 已经是最终格式（单个值或已用":"连接的联合unique键），直接传入
-		kvs[idx].Key = util.GenUniqueCacheKey(c.InstanceId, tableName, uniqueIndexName, kv.Key)
+	cacheKvs := make([]util.Kv, 0, len(kvs))
+	for _, kv := range kvs {
+		cacheKvs = append(cacheKvs, util.Kv{
+			Key:   util.GenUniqueCacheKey(c.InstanceId, tableName, uniqueIndexName, kv.Key),
+			Value: kv.Value,
+		})
 	}
-	return c.cache.BatchSetKeys(ctx, kvs)
+	return c.cache.BatchSetKeys(ctx, cacheKvs)
 }
 
 // InvalidateUniqueCache 失效unique键缓存
